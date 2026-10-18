@@ -1,0 +1,15 @@
+artifacts/
+src/packages/
+**/bin/
+**/obj/
+**/x64/
+**/.vs/
+*.user
+*.suo
+*.pdb
+*.iobj
+*.ipdb
+*.log
+*.tmp
+*.zip
+

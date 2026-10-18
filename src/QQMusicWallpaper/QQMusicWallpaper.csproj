@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>QQMusicWallpaper</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>True</UseWindowsForms>
+    <TargetFramework>net40</TargetFramework>
+    <StartupObject>QQMusicWallpaper.Program</StartupObject>
+    <ApplicationIcon>..\..\assets\QQMusicWallpaper.ico</ApplicationIcon>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
+  </PropertyGroup>
+  <PropertyGroup />
+  <ItemGroup>
+    <None Include="..\..\assets\QQMusicWallpaper.ico" Link="QQMusicWallpaper.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
