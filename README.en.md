@@ -14,6 +14,30 @@ Turn the current QQ Music window into an interactive Windows desktop wallpaper. 
 - A portable x64 package: extract, run, and let the app find or open QQ Music.
 - Automatic color restoration on wallpaper shutdown or application exit.
 
+## What's new in v1.1.0
+
+### Added
+
+- Stable desktop overlays for volume and playback-order selection.
+- A bundled minimal File Explorer coloring runtime, removing the need for a separate Windhawk installation.
+- Automatic QQ Music discovery/startup, manual re-detection, update checks, and author information.
+- Complete Windows color backup and restoration when wallpaper rendering starts or stops.
+
+### Fixed and improved
+
+- Playback-order choices now apply explicit native mode values for shuffle, sequential play, single-track repeat, and playlist repeat.
+- A selection sends one playback-mode command, eliminating repeated loading indicators.
+- Improved input ownership for desktop icons, clicks, dragging, filename editing, and lyric-wheel scrolling.
+- Improved full-desktop sizing, source-window hiding, and continuous animated rendering.
+- Consolidated the app into one tray entry and renamed the program, settings, assets, and package to `Piaoklxt-MusicWallpaper`.
+
+### Known issues
+
+- Clicking a lyric timestamp still does not seek playback; the unsuccessful experimental implementation is excluded from the release.
+- QQ Music's separate native comment panel cannot yet be used reliably through the desktop mirror.
+
+See [CHANGELOG.md](CHANGELOG.md) for the complete history.
+
 ## Download and run
 
 1. Download `Piaoklxt-MusicWallpaper-v1.1.0-win-x64.zip` from [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases).
