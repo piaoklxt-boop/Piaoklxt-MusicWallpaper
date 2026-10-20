@@ -1,62 +1,62 @@
 # Piaoklxt-MusicWallpaper
 
-[简体中文](README.zh-CN.md)
+[English](README.en.md)
 
-[![Build portable release](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/actions/workflows/build.yml/badge.svg)](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/actions/workflows/build.yml)
+[![构建便携版](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/actions/workflows/build.yml/badge.svg)](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/actions/workflows/build.yml)
 
-Turn the current QQ Music window into an interactive Windows desktop wallpaper. The wallpaper keeps QQ Music's animated playback page, lets you click the familiar playback controls on the desktop, and can synchronize the Windows accent color with the current page or album artwork.
+把 QQ 音乐当前窗口变成可交互的 Windows 动态桌面。它保留 QQ 音乐播放页的动画效果，可直接在桌面点击原有播放控件，还能让 Windows 强调色随当前播放页或封面主色变化。
 
-## Highlights
+## 主要优势
 
-- Live QQ Music rendering behind normal desktop icons, without keeping the QQ Music window in the foreground.
-- Working desktop playback, volume, playback-order and lyric-wheel controls.
-- Automatic Windows accent, taskbar, supported app chrome and File Explorer color synchronization.
-- A portable x64 package: extract, run, and let the app find or open QQ Music.
-- Automatic color restoration on wallpaper shutdown or application exit.
+- QQ 音乐画面实时铺在桌面图标后方，无需让 QQ 音乐窗口一直停在前台。
+- 桌面播放、音量、播放顺序和歌词滚动均可直接操作。
+- Windows 强调色、任务栏、受支持应用的窗口顶部及文件资源管理器可随播放页自动配色。
+- 提供完整的 x64 便携包：解压即用，并可自动寻找或启动 QQ 音乐。
+- 关闭桌面渲染或退出程序时自动恢复原系统配色。
 
-## Download and run
+## 下载与使用
 
-1. Download `Piaoklxt-MusicWallpaper-v1.1.0-win-x64.zip` from [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases).
-2. Extract the complete ZIP to any writable folder.
-3. Run `Piaoklxt-MusicWallpaper.exe`.
+1. 从 [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases) 下载 `Piaoklxt-MusicWallpaper-v1.1.0-win-x64.zip`。
+2. 将压缩包完整解压到任意可写目录。
+3. 双击 `Piaoklxt-MusicWallpaper.exe`。
 
-No compiler, SDK, runtime setup, or manual configuration is required. QQ Music itself is not bundled; install the official Windows client first. The app detects and opens QQ Music automatically when it starts. Use the tray menu to re-detect or select `QQMusic.exe` manually if automatic detection fails.
+不需要安装编译器、SDK、运行环境，也不需要手动配路径。程序不附带 QQ 音乐，请先安装官方 Windows 客户端。程序启动时会从运行中的进程、卸载信息和常见目录自动查找并打开 QQ 音乐；自动检测失败时，也可在托盘菜单中重新检测或手动选择 `QQMusic.exe`。
 
-## Controls
+## 操作
 
-- `Ctrl+Alt+U`: show or hide the desktop wallpaper.
-- Tray icon: toggle wallpaper, restore QQ Music, choose the player path, toggle startup, control theme synchronization, check for updates, view author information, or exit.
-- The desktop volume and playback-order controls use stable wallpaper pop-ups while applying changes to QQ Music in the background.
-- Startup with Windows is enabled on first run and can be disabled from the tray menu.
+- `Ctrl+Alt+U`：打开或关闭桌面壁纸。
+- 托盘图标：切换壁纸、恢复 QQ 音乐、选择播放器路径、切换开机自启、设置主题色同步、检查更新、查看作者信息或退出。
+- 桌面的音量和播放顺序使用稳定的壁纸弹窗，修改结果会在后台应用到 QQ 音乐。
+- 首次运行默认开启开机自启，可在托盘菜单关闭。
 
-Settings and logs are stored in `%LOCALAPPDATA%\Piaoklxt-MusicWallpaper`, so the extracted program folder stays portable and read-only friendly. Existing settings from the former `QQMusicWallpaper` folder are imported automatically on first run.
+设置和日志存放在 `%LOCALAPPDATA%\Piaoklxt-MusicWallpaper`，不会污染解压目录，也能从只读目录运行。首次启动会自动导入旧版 `QQMusicWallpaper` 目录中的设置。
 
-## Compatibility
+## 兼容性
 
-- Windows 11 x64: supported.
-- Windows 10 version 1903 or later: experimental.
-- QQ Music for Windows: required and installed separately.
+- Windows 11 x64：正式支持。
+- Windows 10 1903 及以上：实验性支持。
+- 需要另外安装 Windows 版 QQ 音乐。
 
-The main QQ Music window is mirrored. Clicking a lyric timestamp on the rendered desktop does not currently seek playback, although lyric scrolling works. The comment button is disabled on the wallpaper because QQ Music renders its comment panel as a separate native surface that cannot be mirrored reliably.
+壁纸镜像的是 QQ 音乐主窗口。目前点击桌面歌词旁的时间标签还不能跳转播放时间，但歌词滚动可正常使用。QQ 音乐的评论面板属于单独的原生界面，无法可靠镜像，因此桌面壁纸中的评论按钮已停用。
 
-On Windows 11, the portable package includes an optional minimal Explorer styling runtime. It colors the File Explorer top area with the synchronized accent color and does not require a separate Windhawk installation. If an existing Windhawk instance is already running, the bundled runtime stays inactive to avoid conflicts.
+Windows 11 便携包内置精简的文件资源管理器着色运行时，可让资源管理器顶部跟随当前强调色，不需要另外安装 Windhawk。检测到已有 Windhawk 正在运行时，内置运行时会保持关闭，避免冲突。
 
-When desktop rendering starts, the app saves the current Windows color settings. Turning the wallpaper off or exiting the app restores those settings; turning it on again starts a fresh color session.
+进入桌面渲染时，程序会保存当前 Windows 配色；关闭桌面渲染或退出程序时会恢复原配色，再次进入时重新保存并开始新的配色会话。
 
-## Privacy and updates
+## 隐私与更新
 
-The app contains no telemetry. Update checks make a standard HTTPS request to this repository's GitHub Releases API. You can also check manually from the tray menu.
+程序不采集遥测数据。自动检查更新只会通过 HTTPS 访问本仓库的 GitHub Releases API；也可从托盘菜单手动检查。
 
-## Build from source
+## 从源码构建
 
-Requirements: Visual Studio 2022 Build Tools with Desktop development with C++, a .NET SDK capable of building `net40`, and NuGet CLI. Run `scripts\build-release.ps1`; the portable folder and ZIP are written to `artifacts`.
+需要 Visual Studio 2022 C++ 桌面生成工具、可构建 `net40` 的 .NET SDK 和 NuGet CLI。运行 `scripts\build-release.ps1`，便携目录和 ZIP 会生成到 `artifacts`。
 
-## License and trademarks
+## 许可证与商标
 
-The Piaoklxt-MusicWallpaper application is released under the [MIT License](LICENSE). The portable archive also contains a separate GPLv3 Explorer styling runtime; its source and license are shipped beside its binaries. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+Piaoklxt-MusicWallpaper 主程序使用 [MIT 许可证](LICENSE)。便携包还包含一个独立运行的 GPLv3 文件资源管理器着色组件，其源码和许可证随二进制文件一同提供。详见 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
-This is an independent community project. It is not affiliated with or endorsed by Tencent. QQ Music and related names and marks belong to their respective owners. The project does not distribute QQ Music or Tencent assets.
+这是独立社区项目，与腾讯没有隶属、授权或背书关系。QQ 音乐及相关名称和标志归其权利人所有；本项目不分发 QQ 音乐程序或腾讯素材。
 
-## Author
+## 关于作者
 
 piaoklxt — <piaoklxt@gmail.com>

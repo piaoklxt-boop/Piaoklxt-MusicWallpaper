@@ -41,7 +41,7 @@ Copy-Item (Join-Path $controllerOut 'Piaoklxt-MusicWallpaper.exe.config') $porta
 Copy-Item (Join-Path $rendererOut 'Piaoklxt-MusicWallpaperRenderer.exe') $portableDir
 Copy-Item (Join-Path $repo 'assets\Piaoklxt-MusicWallpaper.ico') $portableDir
 Copy-Item (Join-Path $repo 'README.md') $portableDir
-Copy-Item (Join-Path $repo 'README.zh-CN.md') $portableDir
+Copy-Item (Join-Path $repo 'README.en.md') $portableDir
 Copy-Item (Join-Path $repo 'CHANGELOG.md') $portableDir
 Copy-Item (Join-Path $repo 'LICENSE') $portableDir
 Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $portableDir
