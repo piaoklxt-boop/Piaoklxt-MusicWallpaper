@@ -1,5 +1,5 @@
 param(
-    [string]$Version = '1.0.0',
+    [string]$Version = '1.1.0',
     [string]$Configuration = 'Release'
 )
 
@@ -10,12 +10,12 @@ $controllerOut = Join-Path $artifacts 'controller'
 $rendererOut = Join-Path $artifacts 'renderer'
 $objOut = Join-Path $artifacts 'obj-renderer'
 $packageDir = Join-Path $repo 'src\packages'
-$portableName = "QQMusicWallpaper-v$Version-win-x64"
+$portableName = "Piaoklxt-MusicWallpaper-v$Version-win-x64"
 $portableDir = Join-Path $artifacts $portableName
 $zipPath = Join-Path $artifacts "$portableName.zip"
 
 New-Item -ItemType Directory -Force $artifacts, $controllerOut, $rendererOut | Out-Null
-dotnet build (Join-Path $repo 'src\QQMusicWallpaper\QQMusicWallpaper.csproj') -c $Configuration -o $controllerOut
+dotnet build (Join-Path $repo 'src\QQMusicWallpaper\Piaoklxt-MusicWallpaper.csproj') -c $Configuration -o $controllerOut
 if ($LASTEXITCODE -ne 0) { throw 'Controller build failed.' }
 
 $packageMarker = Join-Path $packageDir 'Microsoft.Windows.CppWinRT.2.0.240405.15\build\native\Microsoft.Windows.CppWinRT.props'
@@ -31,22 +31,22 @@ if (-not (Test-Path $vswhere)) { throw 'Visual Studio 2022 Build Tools were not 
 $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
 if (-not $msbuild) { throw 'MSBuild was not found.' }
 
-& $msbuild (Join-Path $repo 'src\Renderer\Win32CaptureSample.vcxproj') /m /p:Configuration=$Configuration /p:Platform=x64 /p:TargetName=QQMusicWallpaperRenderer /p:OutDir="$rendererOut\" /p:IntDir="$objOut\"
+& $msbuild (Join-Path $repo 'src\Renderer\Win32CaptureSample.vcxproj') /m /p:Configuration=$Configuration /p:Platform=x64 /p:TargetName=Piaoklxt-MusicWallpaperRenderer /p:OutDir="$rendererOut\" /p:IntDir="$objOut\"
 if ($LASTEXITCODE -ne 0) { throw 'Renderer build failed.' }
 
 if (Test-Path $portableDir) { [System.IO.Directory]::Delete($portableDir, $true) }
 New-Item -ItemType Directory -Force $portableDir | Out-Null
-Copy-Item (Join-Path $controllerOut 'QQMusicWallpaper.exe') $portableDir
-Copy-Item (Join-Path $controllerOut 'QQMusicWallpaper.exe.config') $portableDir
-Copy-Item (Join-Path $rendererOut 'QQMusicWallpaperRenderer.exe') $portableDir
-Copy-Item (Join-Path $repo 'assets\QQMusicWallpaper.ico') $portableDir
+Copy-Item (Join-Path $controllerOut 'Piaoklxt-MusicWallpaper.exe') $portableDir
+Copy-Item (Join-Path $controllerOut 'Piaoklxt-MusicWallpaper.exe.config') $portableDir
+Copy-Item (Join-Path $rendererOut 'Piaoklxt-MusicWallpaperRenderer.exe') $portableDir
+Copy-Item (Join-Path $repo 'assets\Piaoklxt-MusicWallpaper.ico') $portableDir
 Copy-Item (Join-Path $repo 'README.md') $portableDir
 Copy-Item (Join-Path $repo 'README.zh-CN.md') $portableDir
 Copy-Item (Join-Path $repo 'CHANGELOG.md') $portableDir
 Copy-Item (Join-Path $repo 'LICENSE') $portableDir
 Copy-Item (Join-Path $repo 'THIRD-PARTY-NOTICES.md') $portableDir
+Copy-Item (Join-Path $repo 'third_party\ExplorerThemeRuntime') (Join-Path $portableDir 'ExplorerThemeRuntime') -Recurse
 
 if (Test-Path $zipPath) { [System.IO.File]::Delete($zipPath) }
 Compress-Archive -Path (Join-Path $portableDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
 Write-Host "Created $zipPath"
-

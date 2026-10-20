@@ -17,7 +17,7 @@ namespace QQMusicWallpaperThemeSync
         internal static void RunWorker(string root)
         {
             bool created;
-            instance = new Mutex(true, @"Local\QQMusicWallpaper.ThemeSync", out created);
+            instance = new Mutex(true, @"Local\PiaoklxtMusicWallpaper.ThemeSync", out created);
             if (!created) return;
             try
             {
@@ -53,7 +53,7 @@ namespace QQMusicWallpaperThemeSync
                 return;
             }
             bool created;
-            instance = new Mutex(true, @"Local\QQMusicWallpaper.ThemeSync", out created);
+            instance = new Mutex(true, @"Local\PiaoklxtMusicWallpaper.ThemeSync", out created);
             if (!created) return;
             try
             {
@@ -81,6 +81,7 @@ namespace QQMusicWallpaperThemeSync
         private bool matchBrightness;
         private bool colorizeShell;
         private bool darkApps;
+        private bool wallpaperSessionActive;
         private Color lastColor = Color.Empty;
         private bool? lastLight;
 
@@ -103,6 +104,10 @@ namespace QQMusicWallpaperThemeSync
             settingsPath = Path.Combine(root, "theme-sync.ini");
             backupPath = Path.Combine(root, "theme-original.reg.txt");
             ReadSettings();
+            // A backup can survive an abnormal termination. Restore it before a
+            // new wallpaper session snapshots the user's current color choices.
+            if (File.Exists(backupPath)) ThemeRegistry.Restore(backupPath);
+            wallpaperSessionActive = showTray || hostMenu != null;
             // Clear caption overrides left by older versions. Explorer's top row
             // now uses its native appearance; no per-window DWM tint is applied.
             ExplorerTint.Reset();
@@ -131,7 +136,7 @@ namespace QQMusicWallpaperThemeSync
             // controller's UI thread: its low-level mouse hook runs there.
             timer = new System.Threading.Timer(s => UpdateColor(false), null, 1500, 1500);
             UpdateMenu();
-            if (enabled)
+            if (enabled && wallpaperSessionActive)
             {
                 ThemeRegistry.Backup(backupPath);
                 UpdateColor(true);
@@ -149,6 +154,8 @@ namespace QQMusicWallpaperThemeSync
         public void RequestToggleShell() { Post(ToggleShell); }
         public void RequestToggleApps() { Post(ToggleApps); }
         public void RequestUpdateColor() { Post(() => UpdateColor(true)); }
+        public void RequestBeginWallpaperSession() { Post(BeginWallpaperSession); }
+        public void RequestEndWallpaperSession() { Post(EndWallpaperSession); }
 
         public void Shutdown()
         {
@@ -156,7 +163,9 @@ namespace QQMusicWallpaperThemeSync
             lock (updateLock)
             {
                 shuttingDown = true;
-                if (enabled) ThemeRegistry.Restore(backupPath);
+                wallpaperSessionActive = false;
+                ExplorerTint.Reset();
+                ThemeRegistry.Restore(backupPath);
             }
             if (tray != null)
             {
@@ -203,10 +212,13 @@ namespace QQMusicWallpaperThemeSync
             {
                 if (!enabled)
                 {
-                    ThemeRegistry.Backup(backupPath);
                     enabled = true;
                     SaveSettings();
-                    UpdateColor(true);
+                    if (wallpaperSessionActive)
+                    {
+                        ThemeRegistry.Backup(backupPath);
+                        UpdateColor(true);
+                    }
                 }
                 else
                 {
@@ -217,6 +229,33 @@ namespace QQMusicWallpaperThemeSync
                     lastColor = Color.Empty;
                     lastLight = null;
                 }
+            }
+        }
+
+        private void BeginWallpaperSession()
+        {
+            lock (updateLock)
+            {
+                if (wallpaperSessionActive || shuttingDown) return;
+                wallpaperSessionActive = true;
+                lastColor = Color.Empty;
+                lastLight = null;
+                if (!enabled) return;
+                ThemeRegistry.Backup(backupPath);
+                UpdateColor(true);
+            }
+        }
+
+        private void EndWallpaperSession()
+        {
+            lock (updateLock)
+            {
+                if (!wallpaperSessionActive) return;
+                wallpaperSessionActive = false;
+                ExplorerTint.Reset();
+                ThemeRegistry.Restore(backupPath);
+                lastColor = Color.Empty;
+                lastLight = null;
             }
         }
 
@@ -248,7 +287,7 @@ namespace QQMusicWallpaperThemeSync
         {
             lock (updateLock)
             {
-                if (!enabled || shuttingDown) return;
+                if (!enabled || !wallpaperSessionActive || shuttingDown) return;
                 try
                 {
                     Color color; double brightness;
@@ -325,7 +364,7 @@ namespace QQMusicWallpaperThemeSync
                 GetClassName(hwnd, name, name.Capacity);
                 if (name.ToString() != "Win32CaptureSample.SampleWindow") return true;
                 uint pid; GetWindowThreadProcessId(hwnd, out pid);
-                try { if (Process.GetProcessById((int)pid).ProcessName == "QQMusicWallpaperRenderer") found = hwnd; }
+                try { if (Process.GetProcessById((int)pid).ProcessName == "Piaoklxt-MusicWallpaperRenderer") found = hwnd; }
                 catch (ArgumentException) { }
                 return true;
             };

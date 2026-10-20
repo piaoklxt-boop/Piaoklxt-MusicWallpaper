@@ -12,4 +12,4 @@ src/packages/
 *.log
 *.tmp
 *.zip
-
+!third_party/ExplorerThemeRuntime/licenses/windhawk-1.7.3-source.zip

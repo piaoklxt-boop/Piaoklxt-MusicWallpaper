@@ -14,6 +14,27 @@ namespace util
     using namespace robmikh::common::desktop;
 }
 
+void RuntimeLog(wchar_t const* message)
+{
+    wchar_t localAppData[MAX_PATH] = {};
+    if (!GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, ARRAYSIZE(localAppData))) return;
+    std::wstring directory = std::wstring(localAppData) + L"\\Piaoklxt-MusicWallpaper";
+    CreateDirectoryW(directory.c_str(), nullptr);
+    std::wstring path = directory + L"\\renderer.log";
+    wil::unique_hfile file(CreateFileW(path.c_str(), FILE_APPEND_DATA,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!file) return;
+    SYSTEMTIME time = {};
+    GetLocalTime(&time);
+    wchar_t line[1024] = {};
+    swprintf_s(line, ARRAYSIZE(line),
+        L"%04u-%02u-%02u %02u:%02u:%02u.%03u pid=%lu %s\r\n",
+        time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute,
+        time.wSecond, time.wMilliseconds, GetCurrentProcessId(), message);
+    DWORD written = 0;
+    WriteFile(file.get(), line, static_cast<DWORD>(wcslen(line) * sizeof(wchar_t)), &written, nullptr);
+}
+
 HWND FindTargetWindow(wchar_t const* targetProcessName)
 {
     struct State
@@ -66,20 +87,6 @@ HWND FindTargetWindow(wchar_t const* targetProcessName)
     return state.window;
 }
 
-void PrepareQQMusic(HWND window)
-{
-    ShowWindow(window, SW_RESTORE);
-    ShowWindow(window, SW_MAXIMIZE);
-    SetForegroundWindow(window);
-    Sleep(400);
-    RECT client = {};
-    GetClientRect(window, &client);
-    auto point = MAKELPARAM(300, std::max(80L, client.bottom - 52));
-    PostMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, point);
-    PostMessageW(window, WM_LBUTTONUP, 0, point);
-    Sleep(1000);
-}
-
 void EnableCaptureRedirection(HWND window)
 {
     auto exStyle = GetWindowLongPtrW(window, GWL_EXSTYLE);
@@ -91,12 +98,17 @@ void EnableCaptureRedirection(HWND window)
 
 int __stdcall WinMain(HINSTANCE, HINSTANCE, PSTR, int)
 {
+    RuntimeLog(L"renderer entry");
     // Initialize COM
     winrt::init_apartment(winrt::apartment_type::single_threaded);
 
     // Check to see that capture is supported
     auto isCaptureSupported = winrt::Windows::Graphics::Capture::GraphicsCaptureSession::IsSupported();
-    if (!isCaptureSupported) return 1;
+    if (!isCaptureSupported)
+    {
+        RuntimeLog(L"exit=1 graphics capture unsupported");
+        return 1;
+    }
 
     // Create the DispatcherQueue that the compositor needs to run
     auto controller = util::CreateDispatcherQueueControllerForCurrentThread();
@@ -118,19 +130,32 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, PSTR, int)
     // Hookup the visual tree to the window
     auto target = window.CreateWindowTarget(compositor);
     target.Root(root);
-    window.AttachToDesktop();
 
     wchar_t targetProcessName[MAX_PATH] = L"QQMusic.exe";
     GetEnvironmentVariableW(L"QQMUSIC_WALLPAPER_TEST_PROCESS", targetProcessName, ARRAYSIZE(targetProcessName));
-    auto qqMusic = FindTargetWindow(targetProcessName);
+    HWND qqMusic = nullptr;
+    wchar_t targetHwndText[32] = {};
+    if (GetEnvironmentVariableW(L"QQMUSIC_WALLPAPER_TARGET_HWND", targetHwndText,
+        ARRAYSIZE(targetHwndText)) > 0)
+    {
+        auto value = _wcstoui64(targetHwndText, nullptr, 10);
+        auto exactWindow = reinterpret_cast<HWND>(static_cast<ULONG_PTR>(value));
+        if (IsWindow(exactWindow)) qqMusic = exactWindow;
+    }
+    if (!qqMusic) qqMusic = FindTargetWindow(targetProcessName);
     if (!qqMusic)
     {
+        RuntimeLog(L"exit=2 QQ Music window not found");
         return 2;
     }
     if (_wcsicmp(targetProcessName, L"QQMusic.exe") == 0) EnableCaptureRedirection(qqMusic);
+    wil::unique_handle firstFrame(CreateEventW(nullptr, TRUE, FALSE,
+        L"Local\\PiaoklxtMusicWallpaperFirstFrame"));
+    if (firstFrame) ResetEvent(firstFrame.get());
     auto item = app->TryStartCaptureFromWindowHandle(qqMusic);
     if (!item)
     {
+        RuntimeLog(L"exit=3 capture item creation failed");
         return 3;
     }
     app->IsCursorEnabled(false);
@@ -145,19 +170,34 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, PSTR, int)
     app->MinUpdateInterval(winrt::Windows::Foundation::TimeSpan{ std::chrono::milliseconds(33) });
     if (_wcsicmp(targetProcessName, L"QQMusic.exe") == 0)
     {
-        // QQ Music periodically restores WS_EX_NOREDIRECTIONBITMAP. Keep it
-        // redirection-capable long enough for DWM/WGC to establish the stream.
-        for (int attempt = 0; attempt < 60; ++attempt)
+        // Keep the source redirection-capable without blocking this window's
+        // message pump for three seconds.
+        std::thread([qqMusic]()
         {
-            EnableCaptureRedirection(qqMusic);
-            Sleep(50);
-        }
+            for (int attempt = 0; attempt < 60 && IsWindow(qqMusic); ++attempt)
+            {
+                EnableCaptureRedirection(qqMusic);
+                Sleep(50);
+            }
+        }).detach();
     }
-    // QQ Music adds a large invisible non-client margin. Move the source well
-    // beyond the primary monitor so that margin cannot cover desktop icons.
-    SetWindowPos(qqMusic, HWND_BOTTOM, workArea.left - width - 512, workArea.top, width, height,
-        SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_FRAMECHANGED);
-
+    DWORD frameWait = firstFrame ? WaitForSingleObject(firstFrame.get(), 6000) : WAIT_FAILED;
+    if (frameWait != WAIT_OBJECT_0)
+    {
+        RuntimeLog(L"exit=4 first captured frame timed out");
+        return 4;
+    }
+    if (!window.AttachToDesktop())
+    {
+        RuntimeLog(L"exit=5 desktop attachment failed");
+        return 5;
+    }
+    wil::unique_handle controllerReady(OpenEventW(EVENT_MODIFY_STATE, FALSE,
+        L"Local\\PiaoklxtMusicWallpaperCaptureReady"));
+    if (controllerReady)
+    {
+        SetEvent(controllerReady.get());
+    }
     // Message pump
     MSG msg = {};
     while (GetMessageW(&msg, nullptr, 0, 0))
@@ -165,5 +205,7 @@ int __stdcall WinMain(HINSTANCE, HINSTANCE, PSTR, int)
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
-    return util::ShutdownDispatcherQueueControllerAndWait(controller, static_cast<int>(msg.wParam));
+    auto result = util::ShutdownDispatcherQueueControllerAndWait(controller, static_cast<int>(msg.wParam));
+    RuntimeLog(L"renderer message loop ended");
+    return result;
 }

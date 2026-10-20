@@ -26,6 +26,8 @@ std::once_flag SampleWindowClassRegistration;
 
 const std::wstring WindowsUniversalContract = L"Windows.Foundation.UniversalApiContract";
 
+extern void RuntimeLog(wchar_t const* message);
+
 void SampleWindow::RegisterWindowClass()
 {
     auto instance = winrt::check_pointer(GetModuleHandleW(nullptr));
@@ -49,7 +51,9 @@ SampleWindow::SampleWindow(int width, int height, std::shared_ptr<App> app)
     std::call_once(SampleWindowClassRegistration, []() { RegisterWindowClass(); });
 
     auto exStyle = WS_EX_TOOLWINDOW | WS_EX_LAYERED;
-    auto style = WS_POPUP | WS_VISIBLE;
+    // Stay hidden until the first captured frame is ready.  Showing this window
+    // during WGC startup was the white desktop flash seen after logon.
+    auto style = WS_POPUP;
 
     RECT rect = { 0, 0, width, height };
     winrt::check_bool(AdjustWindowRectEx(&rect, style, false, exStyle));
@@ -66,33 +70,65 @@ SampleWindow::SampleWindow(int width, int height, std::shared_ptr<App> app)
     m_height = height;
     SetLayeredWindowAttributes(m_window, 0, 255, LWA_ALPHA);
 
-    ShowWindow(m_window, SW_SHOW);
-    UpdateWindow(m_window);
 }
 
-void SampleWindow::AttachToDesktop()
+bool SampleWindow::AttachToDesktop()
 {
     auto progman = FindWindowW(L"Progman", nullptr);
-    DWORD_PTR result = 0;
-    SendMessageTimeoutW(progman, 0x052C, 0xD, 1, SMTO_NORMAL, 1000, &result);
-    SendMessageTimeoutW(progman, 0x052C, 0xD, 0, SMTO_NORMAL, 1000, &result);
-
-    auto worker = FindWindowExW(progman, nullptr, L"WorkerW", nullptr);
-    if (!worker)
+    if (!progman)
     {
-        worker = progman;
+        RuntimeLog(L"desktop attach failed: Progman not found");
+        return false;
     }
 
-    SetParent(m_window, worker);
+    // Windows 11 24H2+ uses a "raised desktop": SHELLDLL_DefView is a
+    // transparent layered child of Progman, and WorkerW paints the static
+    // wallpaper below it.  0x052C (0xD, 1) creates/enables that layout.  Do
+    // not follow it with (0xD, 0): that tears the layout back down and was the
+    // reason an earlier renderer disappeared a few seconds after startup.
+    DWORD_PTR messageResult = 0;
+    SendMessageTimeoutW(progman, 0x052C, 0xD, 1, SMTO_NORMAL, 1000, &messageResult);
+
+    auto shellView = FindWindowExW(progman, nullptr, L"SHELLDLL_DefView", nullptr);
+    auto worker = FindWindowExW(progman, nullptr, L"WorkerW", nullptr);
+    if (!shellView || !worker)
+    {
+        RuntimeLog(L"desktop attach failed: raised desktop children not found");
+        return false;
+    }
+
+    // Keep the renderer owned by persistent Progman.  WorkerW may be recreated
+    // after an Explorer/theme transition, so parenting to WorkerW would let the
+    // shell destroy the renderer along with that background host.
+    SetParent(m_window, progman);
     auto style = GetWindowLongPtrW(m_window, GWL_STYLE);
     style &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP);
     style |= WS_CHILD | WS_VISIBLE;
     SetWindowLongPtrW(m_window, GWL_STYLE, style);
 
-    RECT workerRect = {};
-    GetWindowRect(worker, &workerRect);
-    SetWindowPos(m_window, HWND_BOTTOM, -workerRect.left, -workerRect.top,
-        m_width, m_height, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    RECT desktopRect = {};
+    GetWindowRect(progman, &desktopRect);
+    if (!SetWindowPos(m_window, shellView, -desktopRect.left, -desktopRect.top,
+        m_width, m_height, SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOACTIVATE))
+    {
+        RuntimeLog(L"desktop attach failed: renderer z-order update failed");
+        return false;
+    }
+
+    // Exact child order, front to back: icons, live renderer, static wallpaper.
+    if (!SetWindowPos(worker, m_window, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE))
+    {
+        RuntimeLog(L"desktop attach failed: WorkerW z-order update failed");
+        return false;
+    }
+
+    wchar_t detail[256] = {};
+    swprintf_s(detail, ARRAYSIZE(detail),
+        L"renderer attached between shell view=%p and WorkerW=%p under Progman=%p",
+        shellView, worker, progman);
+    RuntimeLog(detail);
+    return true;
 }
 
 SampleWindow::~SampleWindow()
@@ -102,6 +138,15 @@ SampleWindow::~SampleWindow()
 
 LRESULT SampleWindow::MessageHandler(UINT const message, WPARAM const wparam, LPARAM const lparam)
 {
+    if (message == WM_CLOSE)
+    {
+        // The controller owns renderer lifetime through its job object.  Ignore
+        // shell cleanup broadcasts that are not an explicit controller exit.
+        RuntimeLog(L"ignored WM_CLOSE");
+        return 0;
+    }
+    if (message == WM_DESTROY) RuntimeLog(L"received WM_DESTROY");
+    if (message == WM_NCDESTROY) RuntimeLog(L"received WM_NCDESTROY");
     switch (message)
     {
     case WM_COMMAND:
@@ -443,5 +488,6 @@ void SampleWindow::StopCapture()
 
 void SampleWindow::OnCaptureItemClosed(winrt::GraphicsCaptureItem const&, winrt::IInspectable const&)
 {
+    RuntimeLog(L"capture item closed");
     StopCapture();
 }

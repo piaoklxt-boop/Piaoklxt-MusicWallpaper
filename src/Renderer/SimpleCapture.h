@@ -74,6 +74,8 @@ private:
 
     std::atomic<bool> m_closed = false;
 
+    std::atomic<bool> m_readySignaled = false;
+
     std::shared_ptr<DirtyRegionVisualizer> m_dirtyRegionVisualizer;
     std::atomic<bool> m_visualizeDirtyRegions = false;
 };

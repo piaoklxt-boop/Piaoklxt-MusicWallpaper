@@ -12,7 +12,7 @@ struct SampleWindow : robmikh::common::desktop::DesktopWindow<SampleWindow>
     SampleWindow(int width, int height, std::shared_ptr<App> app);
     ~SampleWindow();
 
-    void AttachToDesktop();
+    bool AttachToDesktop();
 
     LRESULT MessageHandler(UINT const message, WPARAM const wparam, LPARAM const lparam);
 

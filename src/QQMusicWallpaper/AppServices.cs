@@ -12,10 +12,11 @@ namespace QQMusicWallpaper;
 
 internal static class AppInfo
 {
-	public const string Version = "1.0.0";
-	public const string RepositoryUrl = "https://github.com/piaoklxt-boop/QQMusicWallpaper";
+	public const string Version = "1.1.0";
+	public const string RepositoryUrl = "https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper";
 	public const string ReleasesUrl = RepositoryUrl + "/releases";
-	public const string LatestReleaseApi = "https://api.github.com/repos/piaoklxt-boop/QQMusicWallpaper/releases/latest";
+	public const string LatestReleaseApi =
+		"https://api.github.com/repos/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases/latest";
 	public const string QQMusicDownloadUrl = "https://y.qq.com/download/download.html";
 }
 
@@ -34,14 +35,23 @@ internal static class AppPaths
 {
 	public static readonly string BaseDirectory = AppDomain.CurrentDomain.BaseDirectory;
 	public static readonly string DataDirectory = Path.Combine(
-		Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QQMusicWallpaper");
+		Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+		"Piaoklxt-MusicWallpaper");
+	private static readonly string LegacyDataDirectory = Path.Combine(
+		Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+		"QQMusicWallpaper");
 	public static readonly string ThemeDirectory = Path.Combine(DataDirectory, "theme-sync");
 	public static readonly string SettingsPath = Path.Combine(DataDirectory, "settings.ini");
 	public static readonly string LogPath = Path.Combine(DataDirectory, "qqmusic-wallpaper.log");
 	public static readonly string ThemeLogPath = Path.Combine(DataDirectory, "theme-sync.log");
+	public static readonly string CaptureGeometryPath = Path.Combine(DataDirectory, "capture-geometry.txt");
 
 	public static void Ensure()
 	{
+		if (!Directory.Exists(DataDirectory) && Directory.Exists(LegacyDataDirectory))
+		{
+			CopyTree(LegacyDataDirectory, DataDirectory);
+		}
 		Directory.CreateDirectory(DataDirectory);
 		Directory.CreateDirectory(ThemeDirectory);
 		MigrateIfNeeded("theme-sync.ini");
@@ -57,6 +67,26 @@ internal static class AppPaths
 		}
 	}
 
+	private static void CopyTree(string source, string destination)
+	{
+		Directory.CreateDirectory(destination);
+		foreach (string directory in Directory.GetDirectories(source, "*",
+			SearchOption.AllDirectories))
+		{
+			Directory.CreateDirectory(Path.Combine(destination,
+				directory.Substring(source.Length).TrimStart(Path.DirectorySeparatorChar)));
+		}
+		foreach (string file in Directory.GetFiles(source, "*",
+			SearchOption.AllDirectories))
+		{
+			string relative = file.Substring(source.Length)
+				.TrimStart(Path.DirectorySeparatorChar);
+			string target = Path.Combine(destination, relative);
+			Directory.CreateDirectory(Path.GetDirectoryName(target));
+			File.Copy(file, target, false);
+		}
+	}
+
 	private static void MigrateIfNeeded(string fileName)
 	{
 		string destination = Path.Combine(ThemeDirectory, fileName);
@@ -64,6 +94,33 @@ internal static class AppPaths
 		if (!File.Exists(destination) && File.Exists(source))
 		{
 			File.Copy(source, destination, false);
+		}
+	}
+}
+
+internal static class RuntimeLog
+{
+	private static readonly object Sync = new object();
+
+	public static void Write(string message)
+	{
+		string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff ") + message + Environment.NewLine;
+		lock (Sync)
+		{
+			TryAppend(AppPaths.LogPath, line);
+		}
+	}
+
+	private static void TryAppend(string path, string line)
+	{
+		try
+		{
+			string directory = Path.GetDirectoryName(path);
+			if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+			File.AppendAllText(path, line);
+		}
+		catch
+		{
 		}
 	}
 }
@@ -124,7 +181,8 @@ internal sealed class AppSettings
 internal static class StartupManager
 {
 	private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-	private const string ValueName = "QQMusicWallpaper";
+	private const string ValueName = "Piaoklxt-MusicWallpaper";
+	private const string LegacyValueName = "QQMusicWallpaper";
 
 	public static bool IsEnabled()
 	{
@@ -157,6 +215,7 @@ internal static class StartupManager
 			{
 				key.DeleteValue(ValueName, false);
 			}
+			key.DeleteValue(LegacyValueName, false);
 		}
 	}
 }
@@ -269,7 +328,7 @@ internal static class UpdateChecker
 				ServicePointManager.SecurityProtocol = (SecurityProtocolType)3072;
 				using (var client = new WebClient())
 				{
-					client.Headers[HttpRequestHeader.UserAgent] = "QQMusicWallpaper/" + AppInfo.Version;
+					client.Headers[HttpRequestHeader.UserAgent] = "Piaoklxt-MusicWallpaper/" + AppInfo.Version;
 					string json = client.DownloadString(AppInfo.LatestReleaseApi);
 					Match match = Regex.Match(json, "\\\"tag_name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
 					if (!match.Success) throw new InvalidDataException("GitHub response did not contain tag_name.");

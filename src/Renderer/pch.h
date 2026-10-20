@@ -37,6 +37,7 @@
 #include <optional>
 #include <future>
 #include <mutex>
+#include <thread>
 
 // D3D
 #include <d3d11_4.h>

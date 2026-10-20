@@ -224,6 +224,22 @@ void SimpleCapture::OnFrameArrived(winrt::Direct3D11CaptureFramePool const& send
     DXGI_PRESENT_PARAMETERS presentParameters{};
     m_swapChain->Present1(1, 0, &presentParameters);
 
+    // The controller must not hide or maximize the source until WGC has copied
+    // and presented one frame from the window in its original state.
+    if (!m_readySignaled.exchange(true))
+    {
+        // Signal only the renderer's own startup gate.  The renderer exposes the
+        // controller-facing CaptureReady event after its window is attached to
+        // the persistent desktop root, so the controller cannot accept a white
+        // or soon-to-be-destroyed surface as a successful startup.
+        wil::unique_handle readyEvent(OpenEventW(
+            EVENT_MODIFY_STATE, FALSE, L"Local\\PiaoklxtMusicWallpaperFirstFrame"));
+        if (readyEvent)
+        {
+            SetEvent(readyEvent.get());
+        }
+    }
+
     swapChainResizedToFrame = swapChainResizedToFrame || TryUpdatePixelFormat();
 
     if (swapChainResizedToFrame)

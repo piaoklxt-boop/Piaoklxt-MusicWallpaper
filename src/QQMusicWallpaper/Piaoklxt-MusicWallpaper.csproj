@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <AssemblyName>QQMusicWallpaper</AssemblyName>
+    <AssemblyName>Piaoklxt-MusicWallpaper</AssemblyName>
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
     <OutputType>WinExe</OutputType>
     <UseWindowsForms>True</UseWindowsForms>
     <TargetFramework>net40</TargetFramework>
     <StartupObject>QQMusicWallpaper.Program</StartupObject>
-    <ApplicationIcon>..\..\assets\QQMusicWallpaper.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\Piaoklxt-MusicWallpaper.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup>
     <LangVersion>14.0</LangVersion>
@@ -15,6 +15,9 @@
   </PropertyGroup>
   <PropertyGroup />
   <ItemGroup>
-    <None Include="..\..\assets\QQMusicWallpaper.ico" Link="QQMusicWallpaper.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\assets\Piaoklxt-MusicWallpaper.ico" Link="Piaoklxt-MusicWallpaper.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Accessibility" />
   </ItemGroup>
 </Project>

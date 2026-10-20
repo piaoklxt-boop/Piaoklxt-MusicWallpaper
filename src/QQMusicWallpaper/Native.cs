@@ -123,6 +123,10 @@ internal static class Native
 	[DllImport("user32.dll")]
 	public static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
 
+	[DllImport("user32.dll")]
+	public static extern bool EnumChildWindows(IntPtr parent, EnumWindowsProc callback,
+		IntPtr lParam);
+
 	[DllImport("user32.dll", CharSet = CharSet.Unicode)]
 	public static extern IntPtr FindWindow(string className, string windowName);
 
@@ -266,6 +270,15 @@ internal static class Native
 
 	[DllImport("kernel32.dll")]
 	public static extern bool CloseHandle(IntPtr handle);
+
+	[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+	public static extern IntPtr CreateEvent(IntPtr eventAttributes, bool manualReset, bool initialState, string name);
+
+	[DllImport("kernel32.dll", SetLastError = true)]
+	public static extern bool ResetEvent(IntPtr handle);
+
+	[DllImport("kernel32.dll", SetLastError = true)]
+	public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
 
 	[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
 	public static extern IntPtr CreateJobObject(IntPtr jobAttributes, string name);
