@@ -12,6 +12,9 @@ internal enum DesktopSpecialAction
 	ShowNativeComments,
 	ClickLyricTranslation,
 	ClickAccompaniment,
+	ClickPlayerStyle,
+	ClickQuality,
+	ClickSoundEffects,
 	ToggleNativePlaylist
 }
 
@@ -160,6 +163,32 @@ internal static class DesktopInputPolicy
 		return false;
 	}
 
+	public static bool TryInferOffscreenControlCorrection(Rectangle[] candidates,
+		Rectangle visibleArea, out Point correction)
+	{
+		correction = Point.Empty;
+		int bestDistance = int.MaxValue;
+		for (int visibleIndex = 0; visibleIndex < candidates.Length; visibleIndex++)
+		{
+			Rectangle visible = candidates[visibleIndex];
+			if (!visibleArea.Contains(visible.Left + visible.Width / 2,
+				visible.Top + visible.Height / 2)) continue;
+			for (int staleIndex = 0; staleIndex < candidates.Length; staleIndex++)
+			{
+				Rectangle stale = candidates[staleIndex];
+				if (stale.Top < visibleArea.Bottom || stale.Width != visible.Width ||
+					stale.Height != visible.Height) continue;
+				Point candidate = new Point(visible.Left - stale.Left,
+					visible.Top - stale.Top);
+				int distance = Math.Abs(candidate.X) + Math.Abs(candidate.Y);
+				if (distance == 0 || distance >= bestDistance) continue;
+				bestDistance = distance;
+				correction = candidate;
+			}
+		}
+		return bestDistance != int.MaxValue;
+	}
+
 	public static bool TryGetMediaKey(Point point, Rectangle work,
 		MediaControlArea[] controls, Rectangle[] progressAreas, out byte key)
 	{
@@ -210,13 +239,17 @@ internal static class DesktopInputPolicy
 
 	public static DesktopSpecialAction ResolveSpecialAction(bool isVolume,
 		bool isPlaybackMode, bool isComment, bool isLyricTranslation,
-		bool isAccompaniment, bool isPlaylist)
+		bool isAccompaniment, bool isPlayerStyle, bool isQuality,
+		bool isSoundEffects, bool isPlaylist)
 	{
 		if (isVolume) return DesktopSpecialAction.ShowVolume;
 		if (isPlaybackMode) return DesktopSpecialAction.ShowPlaybackModes;
 		if (isComment) return DesktopSpecialAction.ShowNativeComments;
 		if (isLyricTranslation) return DesktopSpecialAction.ClickLyricTranslation;
 		if (isAccompaniment) return DesktopSpecialAction.ClickAccompaniment;
+		if (isPlayerStyle) return DesktopSpecialAction.ClickPlayerStyle;
+		if (isQuality) return DesktopSpecialAction.ClickQuality;
+		if (isSoundEffects) return DesktopSpecialAction.ClickSoundEffects;
 		if (isPlaylist) return DesktopSpecialAction.ToggleNativePlaylist;
 		return DesktopSpecialAction.None;
 	}

@@ -31,19 +31,38 @@ internal static class Program
 		AssertEqual("comment opens native QQ Music",
 			DesktopSpecialAction.ShowNativeComments,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, true,
-				false, false, false));
+				false, false, false, false, false, false));
 		AssertEqual("translation uses an atomic control click",
 			DesktopSpecialAction.ClickLyricTranslation,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
-				true, false, false));
+				true, false, false, false, false, false));
 		AssertEqual("accompaniment uses an atomic control click",
 			DesktopSpecialAction.ClickAccompaniment,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
-				false, true, false));
+				false, true, false, false, false, false));
+		AssertEqual("player style uses an atomic control click",
+			DesktopSpecialAction.ClickPlayerStyle,
+			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
+				false, false, true, false, false, false));
+		AssertEqual("quality uses an atomic control click",
+			DesktopSpecialAction.ClickQuality,
+			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
+				false, false, false, true, false, false));
+		AssertEqual("sound effects use an atomic control click",
+			DesktopSpecialAction.ClickSoundEffects,
+			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
+				false, false, false, false, true, false));
 		AssertEqual("playlist uses the native popup lifecycle",
 			DesktopSpecialAction.ToggleNativePlaylist,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
-				false, false, true));
+				false, false, false, false, false, true));
+
+		Rectangle goodQualityBounds = new Rectangle(1719, 969, 39, 24);
+		Rectangle staleQualityBounds = new Rectangle(1731, 1058, 39, 24);
+		AssertTrue("duplicate QQ bounds reveal the stale non-client offset",
+			DesktopInputPolicy.TryInferOffscreenControlCorrection(
+				new[] { goodQualityBounds, staleQualityBounds }, work,
+				out Point correction) && correction == new Point(-12, -89));
 
 		AssertEqual("progress down starts local tracking",
 			ProgressPointerAction.BeginTracking,

@@ -73,6 +73,18 @@ internal static class QQMusicAccessibility
 	public static Rectangle[] GetVisibleControlBounds(IntPtr window,
 		string description, Rectangle visibleArea)
 	{
+		return GetControlBounds(window, description, visibleArea, includeHidden: false);
+	}
+
+	public static Rectangle[] GetControlBoundsIncludingHidden(IntPtr window,
+		string description, Rectangle searchArea)
+	{
+		return GetControlBounds(window, description, searchArea, includeHidden: true);
+	}
+
+	private static Rectangle[] GetControlBounds(IntPtr window,
+		string description, Rectangle searchArea, bool includeHidden)
+	{
 		List<Rectangle> bounds = new List<Rectangle>();
 		object accessibleObject = null;
 		Guid interfaceId = typeof(IAccessible).GUID;
@@ -84,7 +96,7 @@ internal static class QQMusicAccessibility
 				return bounds.ToArray();
 			}
 			int visited = 0;
-			CollectVisibleControlBounds(accessible, description, visibleArea, 0,
+			CollectControlBounds(accessible, description, searchArea, includeHidden, 0,
 				ref visited, bounds);
 		}
 		catch { }
@@ -284,9 +296,9 @@ internal static class QQMusicAccessibility
 		return false;
 	}
 
-	private static void CollectVisibleControlBounds(IAccessible accessible,
-		string description, Rectangle visibleArea, int depth, ref int visited,
-		List<Rectangle> bounds)
+	private static void CollectControlBounds(IAccessible accessible,
+		string description, Rectangle searchArea, bool includeHidden, int depth,
+		ref int visited, List<Rectangle> bounds)
 	{
 		if (depth > MaxDepth || visited++ > MaxNodes) return;
 		int childCount;
@@ -299,7 +311,7 @@ internal static class QQMusicAccessibility
 			catch { }
 			IAccessible node = child ?? accessible;
 			object childId = child == null ? (object)index : 0;
-			if (IsHidden(node, childId)) continue;
+			if (!includeHidden && IsHidden(node, childId)) continue;
 			try
 			{
 				string name = node.get_accName(childId);
@@ -310,7 +322,7 @@ internal static class QQMusicAccessibility
 					node.accLocation(out int left, out int top, out int width,
 						out int height, childId);
 					if (width > 0 && height > 0 &&
-						visibleArea.Contains(left + width / 2, top + height / 2))
+						searchArea.Contains(left + width / 2, top + height / 2))
 					{
 						bounds.Add(new Rectangle(left, top, width, height));
 					}
@@ -319,7 +331,7 @@ internal static class QQMusicAccessibility
 			catch { }
 			if (child != null)
 			{
-				CollectVisibleControlBounds(child, description, visibleArea,
+				CollectControlBounds(child, description, searchArea, includeHidden,
 					depth + 1, ref visited, bounds);
 			}
 		}

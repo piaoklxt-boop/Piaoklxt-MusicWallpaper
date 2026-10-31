@@ -240,6 +240,12 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private volatile Rectangle[] accompanimentControlAreas = new Rectangle[0];
 
+	private volatile Rectangle[] playerStyleControlAreas = new Rectangle[0];
+
+	private volatile Rectangle[] qualityControlAreas = new Rectangle[0];
+
+	private volatile Rectangle[] soundEffectsControlAreas = new Rectangle[0];
+
 	private volatile Rectangle[] playlistControlAreas = new Rectangle[0];
 
 	private volatile Rectangle[] progressControlAreas = new Rectangle[0];
@@ -1303,7 +1309,8 @@ internal sealed class WallpaperContext : ApplicationContext
 			switch (DesktopInputPolicy.ResolveSpecialAction(IsVolumePoint(point),
 				IsPlaybackModePoint(point), IsCommentPoint(point),
 				IsLyricTranslationPoint(point), IsAccompanimentPoint(point),
-				IsPlaylistPoint(point)))
+				IsPlayerStylePoint(point), IsQualityPoint(point),
+				IsSoundEffectsPoint(point), IsPlaylistPoint(point)))
 			{
 			case DesktopSpecialAction.ShowVolume:
 				QueueShowVolume();
@@ -1319,6 +1326,15 @@ internal sealed class WallpaperContext : ApplicationContext
 				return new IntPtr(1);
 			case DesktopSpecialAction.ClickAccompaniment:
 				QueueAtomicControlClick(point, workingArea, "Accompaniment");
+				return new IntPtr(1);
+			case DesktopSpecialAction.ClickPlayerStyle:
+				QueueAtomicControlClick(point, workingArea, "Player style");
+				return new IntPtr(1);
+			case DesktopSpecialAction.ClickQuality:
+				QueueAtomicControlClick(point, workingArea, "Audio quality");
+				return new IntPtr(1);
+			case DesktopSpecialAction.ClickSoundEffects:
+				QueueAtomicControlClick(point, workingArea, "Sound effects");
 				return new IntPtr(1);
 			case DesktopSpecialAction.ToggleNativePlaylist:
 				QueueToggleNativePlaylist(point, workingArea);
@@ -1391,6 +1407,21 @@ internal sealed class WallpaperContext : ApplicationContext
 	private bool IsAccompanimentPoint(Point point)
 	{
 		return DesktopInputPolicy.IsPointInAny(point, accompanimentControlAreas);
+	}
+
+	private bool IsPlayerStylePoint(Point point)
+	{
+		return DesktopInputPolicy.IsPointInAny(point, playerStyleControlAreas);
+	}
+
+	private bool IsQualityPoint(Point point)
+	{
+		return DesktopInputPolicy.IsPointInAny(point, qualityControlAreas);
+	}
+
+	private bool IsSoundEffectsPoint(Point point)
+	{
+		return DesktopInputPolicy.IsPointInAny(point, soundEffectsControlAreas);
 	}
 
 	private bool IsPlaylistPoint(Point point)
@@ -1801,13 +1832,34 @@ internal sealed class WallpaperContext : ApplicationContext
 								visibleArea.Top - sourceRect.Top);
 							commentControlAreas = new[] { commentBounds };
 						}
-						lyricTranslationControlAreas = GetMappedControlAreas(source,
-							sourceRect, visibleArea, "翻译歌词", "Translation lyrics");
-						accompanimentControlAreas = GetMappedControlAreas(source,
-							sourceRect, visibleArea, "伴唱", "伴奏", "Accompaniment");
-						playlistControlAreas = GetMappedControlAreas(source,
-							sourceRect, visibleArea, "播放队列", "播放列表", "Play queue",
-							"Playlist");
+						Rectangle[] qualityCandidates = GetMappedControlCandidates(source,
+							sourceRect, visibleArea, includeHidden: true, "切换品质",
+							"Change quality");
+						Point bottomControlCorrection = Point.Empty;
+						DesktopInputPolicy.TryInferOffscreenControlCorrection(
+							qualityCandidates, visibleArea, out bottomControlCorrection);
+						lyricTranslationControlAreas = GetUsableControlAreas(
+							GetMappedControlCandidates(source, sourceRect, visibleArea,
+								includeHidden: true, "翻译歌词", "Translation lyrics"),
+							visibleArea, Point.Empty);
+						accompanimentControlAreas = GetUsableControlAreas(
+							GetMappedControlCandidates(source, sourceRect, visibleArea,
+								includeHidden: true, "伴唱", "伴奏", "Accompaniment"),
+							visibleArea, Point.Empty);
+						playerStyleControlAreas = GetUsableControlAreas(
+							GetMappedControlCandidates(source, sourceRect, visibleArea,
+								includeHidden: true, "播放器样式", "Player style"),
+							visibleArea, bottomControlCorrection);
+						qualityControlAreas = GetUsableControlAreas(qualityCandidates,
+							visibleArea, bottomControlCorrection);
+						soundEffectsControlAreas = GetUsableControlAreas(
+							GetMappedControlCandidates(source, sourceRect, visibleArea,
+								includeHidden: true, "音效", "Sound effects"),
+							visibleArea, bottomControlCorrection);
+						playlistControlAreas = GetUsableControlAreas(
+							GetMappedControlCandidates(source, sourceRect, visibleArea,
+								includeHidden: true, "播放队列", "播放列表", "Play queue",
+								"Playlist"), visibleArea, bottomControlCorrection);
 
 						List<MediaControlArea> mediaAreas = new List<MediaControlArea>();
 						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
@@ -1898,27 +1950,49 @@ internal sealed class WallpaperContext : ApplicationContext
 		});
 	}
 
-	private static Rectangle[] GetMappedControlAreas(IntPtr source,
-		Native.RECT sourceRect, Rectangle visibleArea, params string[] descriptions)
+	private static Rectangle[] GetMappedControlCandidates(IntPtr source,
+		Native.RECT sourceRect, Rectangle visibleArea, bool includeHidden,
+		params string[] descriptions)
 	{
 		List<Rectangle> mappedAreas = new List<Rectangle>();
 		for (int descriptionIndex = 0; descriptionIndex < descriptions.Length;
 			descriptionIndex++)
 		{
-			Rectangle[] controls = QQMusicAccessibility.GetVisibleControlBounds(source,
-				descriptions[descriptionIndex], AllAccessibleSpace);
+			Rectangle[] controls = includeHidden
+				? QQMusicAccessibility.GetControlBoundsIncludingHidden(source,
+					descriptions[descriptionIndex], AllAccessibleSpace)
+				: QQMusicAccessibility.GetVisibleControlBounds(source,
+					descriptions[descriptionIndex], AllAccessibleSpace);
 			for (int controlIndex = 0; controlIndex < controls.Length; controlIndex++)
 			{
 				Rectangle mapped = controls[controlIndex];
 				mapped.Offset(visibleArea.Left - sourceRect.Left,
 					visibleArea.Top - sourceRect.Top);
-				mapped = Rectangle.Intersect(visibleArea, mapped);
 				if (mapped.Width <= 1 || mapped.Height <= 1 || mappedAreas.Contains(mapped))
 					continue;
 				mappedAreas.Add(mapped);
 			}
 		}
 		return mappedAreas.ToArray();
+	}
+
+	private static Rectangle[] GetUsableControlAreas(Rectangle[] candidates,
+		Rectangle visibleArea, Point offscreenCorrection)
+	{
+		List<Rectangle> result = new List<Rectangle>();
+		for (int index = 0; index < candidates.Length; index++)
+		{
+			Rectangle mapped = candidates[index];
+			if (!visibleArea.Contains(mapped.Left + mapped.Width / 2,
+				mapped.Top + mapped.Height / 2) && offscreenCorrection != Point.Empty)
+			{
+				mapped.Offset(offscreenCorrection);
+			}
+			mapped = Rectangle.Intersect(visibleArea, mapped);
+			if (mapped.Width <= 1 || mapped.Height <= 1 || result.Contains(mapped)) continue;
+			result.Add(mapped);
+		}
+		return result.ToArray();
 	}
 
 	private static void AddMediaControlAreas(List<MediaControlArea> result,
