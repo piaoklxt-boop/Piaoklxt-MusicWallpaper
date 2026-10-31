@@ -216,9 +216,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool progressSeekActive;
 
-	private DateTime lastProgressSeekForwarded = DateTime.MinValue;
-
-	private Point lastProgressSeekPoint = Point.Empty;
+	private Point pendingProgressSeekPoint = Point.Empty;
 
 	private DateTime taskbarClickUntil = DateTime.MinValue;
 
@@ -227,8 +225,6 @@ internal sealed class WallpaperContext : ApplicationContext
 	private DateTime lastLyricControlRefresh = DateTime.MinValue;
 
 	private bool sourcePresented;
-
-	private DateTime nativePresentationGraceUntil = DateTime.MinValue;
 
 	private volatile Rectangle[] qqInteractiveAreas = new Rectangle[0];
 
@@ -670,7 +666,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			DateTime now = DateTime.UtcNow;
 			bool foregroundIsQQMusic = IsQQMusicWindow(foregroundWindow);
 			if (DesktopInputPolicy.ShouldKeepNativeSurfacePresented(sourcePresented,
-				foregroundIsQQMusic, now, nativePresentationGraceUntil))
+				foregroundIsQQMusic))
 			{
 				return;
 			}
@@ -1179,14 +1175,14 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			ProgressPointerAction progressAction =
 				DesktopInputPolicy.ResolveProgressPointerAction(num, true);
-			if (progressAction == ProgressPointerAction.Click ||
-				progressAction == ProgressPointerAction.ClickAndEnd)
+			if (progressAction == ProgressPointerAction.UpdatePendingPosition)
 			{
-				ForwardProgressClick(point, workingArea,
-					progressAction == ProgressPointerAction.ClickAndEnd);
+				pendingProgressSeekPoint = point;
 			}
-			if (progressAction == ProgressPointerAction.ClickAndEnd)
+			if (progressAction == ProgressPointerAction.CommitSeek)
 			{
+				pendingProgressSeekPoint = point;
+				ForwardProgressClick(pendingProgressSeekPoint, workingArea);
 				progressSeekActive = false;
 				interactionActive = false;
 				interactionTarget = IntPtr.Zero;
@@ -1278,7 +1274,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 		if (num == WmLButtonDown && IsProgressPoint(point))
 		{
-			ForwardProgressClick(point, workingArea, force: true);
+			pendingProgressSeekPoint = point;
 			progressSeekActive = true;
 			interactionActive = true;
 			interactionTarget = qqWindow;
@@ -1391,12 +1387,10 @@ internal sealed class WallpaperContext : ApplicationContext
 				interactionActive = false;
 				progressSeekActive = false;
 				interactionTarget = IntPtr.Zero;
-				nativePresentationGraceUntil = DateTime.UtcNow.AddSeconds(3.0);
-				PresentSourceWindow();
 				ForwardPointerToSource(point, work, WmLButtonDown, new IntPtr(1),
 					qqWindow);
 				ForwardPointerToSource(point, work, WmLButtonUp, IntPtr.Zero, qqWindow);
-				Log("Native comments presented by control-bound click.");
+				Log("Native comments opened by background control-bound click.");
 			});
 		}
 		catch { }
@@ -1416,7 +1410,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				int x = timeline.Left + (int)Math.Round(
 					(double)clamped / total * Math.Max(1, timeline.Width - 1));
 				ForwardProgressClick(new Point(x, timeline.Top + timeline.Height / 2),
-					work, force: true);
+					work);
 				Log("Lyric timestamp seek: " + clamped + "/" + total + " seconds.");
 			});
 		}
@@ -1768,7 +1762,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		return target;
 	}
 
-	private void ForwardProgressClick(Point screenPoint, Rectangle work, bool force)
+	private void ForwardProgressClick(Point screenPoint, Rectangle work)
 	{
 		Rectangle[] progress = progressControlAreas;
 		if (progress.Length == 0) return;
@@ -1776,11 +1770,6 @@ internal sealed class WallpaperContext : ApplicationContext
 		Point target = new Point(
 			Math.Max(timeline.Left, Math.Min(screenPoint.X, timeline.Right - 1)),
 			timeline.Top + timeline.Height / 2);
-		DateTime now = DateTime.UtcNow;
-		if (!force && (now - lastProgressSeekForwarded).TotalMilliseconds < 32.0 &&
-			Math.Abs(target.X - lastProgressSeekPoint.X) < 4) return;
-		lastProgressSeekForwarded = now;
-		lastProgressSeekPoint = target;
 		ForwardPointerToSource(target, work, WmLButtonDown, new IntPtr(1), qqWindow);
 		ForwardPointerToSource(target, work, WmLButtonUp, IntPtr.Zero, qqWindow);
 	}
@@ -1961,7 +1950,6 @@ internal sealed class WallpaperContext : ApplicationContext
 				bounds.Width, bounds.Height, SwpFrameChanged | SwpShowWindow | 16u);
 			Native.GetWindowRect(qqWindow, out var rect);
 			sourcePresented = false;
-			nativePresentationGraceUntil = DateTime.MinValue;
 			return positioned && rect.Left < bounds.Left &&
 				(rect.Right - rect.Left) == bounds.Width && (rect.Bottom - rect.Top) == bounds.Height;
 		}

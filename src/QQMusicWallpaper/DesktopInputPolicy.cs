@@ -15,9 +15,9 @@ internal enum DesktopSpecialAction
 internal enum ProgressPointerAction
 {
 	None,
-	ClickAndBegin,
-	Click,
-	ClickAndEnd
+	BeginTracking,
+	UpdatePendingPosition,
+	CommitSeek
 }
 
 internal readonly struct MediaControlArea
@@ -51,11 +51,11 @@ internal static class DesktopInputPolicy
 	public static ProgressPointerAction ResolveProgressPointerAction(uint message,
 		bool progressInteractionActive)
 	{
-		if (message == 513u) return ProgressPointerAction.ClickAndBegin;
+		if (message == 513u) return ProgressPointerAction.BeginTracking;
 		if (progressInteractionActive && message == 512u)
-			return ProgressPointerAction.Click;
+			return ProgressPointerAction.UpdatePendingPosition;
 		if (progressInteractionActive && message == 514u)
-			return ProgressPointerAction.ClickAndEnd;
+			return ProgressPointerAction.CommitSeek;
 		return ProgressPointerAction.None;
 	}
 
@@ -115,9 +115,9 @@ internal static class DesktopInputPolicy
 	}
 
 	public static bool ShouldKeepNativeSurfacePresented(bool sourcePresented,
-		bool foregroundIsQQMusic, DateTime now, DateTime presentationGraceUntil)
+		bool foregroundIsQQMusic)
 	{
-		return sourcePresented && (foregroundIsQQMusic || now <= presentationGraceUntil);
+		return sourcePresented && foregroundIsQQMusic;
 	}
 
 	public static bool IsPlayerFallbackPoint(Point point, Rectangle work)

@@ -32,14 +32,14 @@ internal static class Program
 			DesktopSpecialAction.ShowNativeComments,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, true));
 
-		AssertEqual("progress down starts click scrubbing",
-			ProgressPointerAction.ClickAndBegin,
+		AssertEqual("progress down only starts tracking",
+			ProgressPointerAction.BeginTracking,
 			DesktopInputPolicy.ResolveProgressPointerAction(513u, false));
-		AssertEqual("progress move emits another click",
-			ProgressPointerAction.Click,
+		AssertEqual("progress move only updates the pending position",
+			ProgressPointerAction.UpdatePendingPosition,
 			DesktopInputPolicy.ResolveProgressPointerAction(512u, true));
-		AssertEqual("progress up emits the final click",
-			ProgressPointerAction.ClickAndEnd,
+		AssertEqual("progress up commits one seek",
+			ProgressPointerAction.CommitSeek,
 			DesktopInputPolicy.ResolveProgressPointerAction(514u, true));
 
 		AssertTrue("lyric timestamp is parsed",
@@ -53,10 +53,8 @@ internal static class Program
 				out Rectangle timeline) &&
 			timeline == new Rectangle(615, 1005, 690, 18));
 
-		DateTime now = new DateTime(2026, 10, 31, 19, 0, 0, DateTimeKind.Utc);
-		AssertTrue("native comments survive foreground-denial grace period",
-			DesktopInputPolicy.ShouldKeepNativeSurfacePresented(true, false, now,
-				now.AddSeconds(3)));
+		AssertFalse("comment launch never keeps the main player over the desktop",
+			DesktopInputPolicy.ShouldKeepNativeSurfacePresented(true, false));
 
 		if (failures != 0)
 		{
