@@ -21,6 +21,17 @@ internal readonly struct AccessibleTimeLabel
 
 internal static class QQMusicAccessibility
 {
+	private sealed class ActionCandidate
+	{
+		public int Score;
+
+		public int Depth;
+
+		public long Area;
+
+		public Rectangle Bounds;
+	}
+
 	private const uint ObjIdClient = 4294967292u;
 
 	private const int MaxDepth = 16;
@@ -82,6 +93,170 @@ internal static class QQMusicAccessibility
 		return GetControlBounds(window, description, searchArea, includeHidden: true);
 	}
 
+	public static bool TryGetControlActionPoint(IntPtr window, Rectangle preferredArea,
+		out Point actionPoint, params string[] descriptions)
+	{
+		actionPoint = Point.Empty;
+		object accessibleObject = null;
+		Guid interfaceId = typeof(IAccessible).GUID;
+		try
+		{
+			if (AccessibleObjectFromWindow(window, ObjIdClient, ref interfaceId,
+				ref accessibleObject) != 0 || !(accessibleObject is IAccessible accessible))
+			{
+				return false;
+			}
+			ActionCandidate best = null;
+			int visited = 0;
+			FindActionCandidate(accessible, preferredArea, descriptions, 0,
+				ref visited, ref best);
+			if (best == null || best.Bounds.Width <= 0 || best.Bounds.Height <= 0)
+				return false;
+			actionPoint = new Point(best.Bounds.Left + best.Bounds.Width / 2,
+				best.Bounds.Top + best.Bounds.Height / 2);
+			return true;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	public static bool TryGetControlActionPointAtPoint(IntPtr window, Point screenPoint,
+		out Point actionPoint)
+	{
+		actionPoint = Point.Empty;
+		object accessibleObject = null;
+		Guid interfaceId = typeof(IAccessible).GUID;
+		try
+		{
+			if (AccessibleObjectFromWindow(window, ObjIdClient, ref interfaceId,
+				ref accessibleObject) != 0 || !(accessibleObject is IAccessible accessible))
+			{
+				return false;
+			}
+			ActionCandidate best = null;
+			int visited = 0;
+			FindPointActionCandidate(accessible, screenPoint, 0, ref visited, ref best);
+			if (best == null || best.Bounds.Width <= 0 || best.Bounds.Height <= 0)
+				return false;
+			actionPoint = new Point(best.Bounds.Left + best.Bounds.Width / 2,
+				best.Bounds.Top + best.Bounds.Height / 2);
+			return true;
+		}
+		catch
+		{
+			return false;
+		}
+	}
+
+	private static void FindPointActionCandidate(IAccessible accessible,
+		Point screenPoint, int depth, ref int visited, ref ActionCandidate best)
+	{
+		if (depth > MaxDepth || visited++ > MaxNodes) return;
+		int childCount;
+		try { childCount = accessible.accChildCount; }
+		catch { return; }
+		for (int index = 1; index <= childCount; index++)
+		{
+			IAccessible child = null;
+			try { child = accessible.get_accChild(index) as IAccessible; }
+			catch { }
+			IAccessible node = child ?? accessible;
+			object childId = child == null ? (object)index : 0;
+			try
+			{
+				string action = "";
+				try { action = node.get_accDefaultAction(childId) ?? ""; }
+				catch { }
+				int role = Convert.ToInt32(node.get_accRole(childId));
+				node.accLocation(out int left, out int top, out int width,
+					out int height, childId);
+				long area = (long)width * height;
+				if ((InteractiveRoles.Contains(role) || !string.IsNullOrWhiteSpace(action)) &&
+					width > 0 && height > 0 &&
+					new Rectangle(left, top, width, height).Contains(screenPoint) &&
+					(best == null || depth > best.Depth ||
+						depth == best.Depth && area < best.Area))
+				{
+					best = new ActionCandidate
+					{
+						Depth = depth,
+						Area = area,
+						Bounds = new Rectangle(left, top, width, height)
+					};
+				}
+			}
+			catch { }
+			if (child != null)
+			{
+				FindPointActionCandidate(child, screenPoint, depth + 1,
+					ref visited, ref best);
+			}
+		}
+	}
+
+	private static void FindActionCandidate(IAccessible accessible,
+		Rectangle preferredArea, string[] descriptions, int depth, ref int visited,
+		ref ActionCandidate best)
+	{
+		if (depth > MaxDepth || visited++ > MaxNodes) return;
+		int childCount;
+		try { childCount = accessible.accChildCount; }
+		catch { return; }
+		for (int index = 1; index <= childCount; index++)
+		{
+			IAccessible child = null;
+			try { child = accessible.get_accChild(index) as IAccessible; }
+			catch { }
+			IAccessible node = child ?? accessible;
+			object childId = child == null ? (object)index : 0;
+			try
+			{
+				string name = node.get_accName(childId);
+				string description = node.get_accDescription(childId);
+				if (MatchesAny(name, descriptions) || MatchesAny(description, descriptions))
+				{
+					string action = "";
+					try { action = node.get_accDefaultAction(childId) ?? ""; }
+					catch { }
+					int score = string.IsNullOrWhiteSpace(action) ? 0 : 100;
+					node.accLocation(out int left, out int top, out int width,
+						out int height, childId);
+					if (width <= 0 || height <= 0) continue;
+					if (preferredArea.Contains(
+						left + width / 2, top + height / 2)) score += 50;
+					if (!IsHidden(node, childId)) score += 10;
+					if (best == null || score > best.Score)
+					{
+						best = new ActionCandidate
+						{
+							Score = score,
+							Bounds = new Rectangle(left, top, width, height)
+						};
+					}
+				}
+			}
+			catch { }
+			if (child != null)
+			{
+				FindActionCandidate(child, preferredArea, descriptions, depth + 1,
+					ref visited, ref best);
+			}
+		}
+	}
+
+	private static bool MatchesAny(string value, string[] candidates)
+	{
+		if (string.IsNullOrWhiteSpace(value)) return false;
+		for (int index = 0; index < candidates.Length; index++)
+		{
+			if (string.Equals(value, candidates[index], StringComparison.Ordinal))
+				return true;
+		}
+		return false;
+	}
+
 	private static Rectangle[] GetControlBounds(IntPtr window,
 		string description, Rectangle searchArea, bool includeHidden)
 	{
@@ -105,6 +280,18 @@ internal static class QQMusicAccessibility
 
 	public static Rectangle[] GetInteractiveBounds(IntPtr window, Rectangle visibleArea)
 	{
+		return GetInteractiveBounds(window, visibleArea, includeHidden: false);
+	}
+
+	public static Rectangle[] GetInteractiveBoundsIncludingHidden(IntPtr window,
+		Rectangle searchArea)
+	{
+		return GetInteractiveBounds(window, searchArea, includeHidden: true);
+	}
+
+	private static Rectangle[] GetInteractiveBounds(IntPtr window,
+		Rectangle visibleArea, bool includeHidden)
+	{
 		List<Rectangle> bounds = new List<Rectangle>();
 		object accessibleObject = null;
 		Guid interfaceId = typeof(IAccessible).GUID;
@@ -116,7 +303,8 @@ internal static class QQMusicAccessibility
 				return bounds.ToArray();
 			}
 			int visited = 0;
-			CollectInteractiveBounds(accessible, visibleArea, 0, ref visited, bounds);
+			CollectInteractiveBounds(accessible, visibleArea, includeHidden, 0,
+				ref visited, bounds);
 		}
 		catch
 		{
@@ -187,8 +375,9 @@ internal static class QQMusicAccessibility
 		}
 	}
 
-	private static void CollectInteractiveBounds(IAccessible accessible, Rectangle visibleArea,
-		int depth, ref int visited, List<Rectangle> bounds)
+	private static void CollectInteractiveBounds(IAccessible accessible,
+		Rectangle visibleArea, bool includeHidden, int depth, ref int visited,
+		List<Rectangle> bounds)
 	{
 		if (depth > MaxDepth || visited++ > MaxNodes)
 		{
@@ -205,7 +394,7 @@ internal static class QQMusicAccessibility
 			catch { }
 			IAccessible node = child ?? accessible;
 			object childId = child == null ? (object)i : 0;
-			if (IsHidden(node, childId))
+			if (!includeHidden && IsHidden(node, childId))
 			{
 				continue;
 			}
@@ -230,7 +419,8 @@ internal static class QQMusicAccessibility
 
 			if (child != null)
 			{
-				CollectInteractiveBounds(child, visibleArea, depth + 1, ref visited, bounds);
+				CollectInteractiveBounds(child, visibleArea, includeHidden, depth + 1,
+					ref visited, bounds);
 			}
 		}
 	}

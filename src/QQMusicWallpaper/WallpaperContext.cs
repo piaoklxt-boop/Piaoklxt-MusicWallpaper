@@ -105,6 +105,14 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private const uint WmClose = 16u;
 
+	private const uint WmCancelMode = 31u;
+
+	private const uint WmKeyDown = 256u;
+
+	private const uint WmKeyUp = 257u;
+
+	private const int VkEscape = 27;
+
 	private const int WhMouseLl = 14;
 
 	private const uint LvmFirst = 4096u;
@@ -126,8 +134,6 @@ internal sealed class WallpaperContext : ApplicationContext
 	private const uint MemRelease = 32768u;
 
 	private const uint PageReadWrite = 4u;
-
-	private static readonly UIntPtr InputMarker = new UIntPtr(1364023120u);
 
 	private readonly HiddenWindow window;
 
@@ -247,6 +253,10 @@ internal sealed class WallpaperContext : ApplicationContext
 	private volatile Rectangle[] soundEffectsControlAreas = new Rectangle[0];
 
 	private volatile Rectangle[] playlistControlAreas = new Rectangle[0];
+
+	private volatile int bottomControlCorrectionX;
+
+	private volatile int bottomControlCorrectionY;
 
 	private volatile Rectangle[] progressControlAreas = new Rectangle[0];
 
@@ -1171,10 +1181,6 @@ internal sealed class WallpaperContext : ApplicationContext
 			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 		}
 		Native.MSLLHOOKSTRUCT mSLLHOOKSTRUCT = (Native.MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(Native.MSLLHOOKSTRUCT));
-		if (mSLLHOOKSTRUCT.extraInfo.ToInt64() == 1364023120)
-		{
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
-		}
 		Point point = new Point(mSLLHOOKSTRUCT.pt.X, mSLLHOOKSTRUCT.pt.Y);
 		Rectangle bounds = Screen.PrimaryScreen.Bounds;
 		Rectangle workingArea = Screen.PrimaryScreen.WorkingArea;
@@ -1262,7 +1268,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		if (flag)
 		{
 			if (!sourcePresented && num == 513 &&
-				TryHandleMediaButton(point, workingArea))
+				TryHandleMediaButton(point))
 			{
 				return new IntPtr(1);
 			}
@@ -1279,7 +1285,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 		}
-		if (num == 513 && TryHandleMediaButton(point, workingArea))
+		if (num == 513 && TryHandleMediaButton(point))
 		{
 			return new IntPtr(1);
 		}
@@ -1300,10 +1306,10 @@ internal sealed class WallpaperContext : ApplicationContext
 		switch (num)
 		{
 		case 513u:
-			if (!IsQQInteractionPoint(point, workingArea, includePlayerFallback: true))
+			if (!IsQQInteractionPoint(point))
 			{
-				if (DesktopInputPolicy.ShouldDismissComments(num, num2,
-					isDesktopIcon: false)) HideNativeCommentWindow();
+				if (DesktopInputPolicy.ShouldDismissTransientUi(num, num2,
+					isDesktopIcon: false)) DismissTransientQQUi();
 				return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 			}
 			switch (DesktopInputPolicy.ResolveSpecialAction(IsVolumePoint(point),
@@ -1319,37 +1325,34 @@ internal sealed class WallpaperContext : ApplicationContext
 				QueueShowPlaybackModes();
 				return new IntPtr(1);
 			case DesktopSpecialAction.ShowNativeComments:
-				QueueShowNativeComments(point, workingArea);
+				QueueShowNativeComments(workingArea);
 				return new IntPtr(1);
 			case DesktopSpecialAction.ClickLyricTranslation:
-				QueueAtomicControlClick(point, workingArea, "Lyric translation");
+				QueueAccessibleControlAction("Lyric translation", workingArea,
+					new[] { "翻译歌词", "Translation lyrics" });
 				return new IntPtr(1);
 			case DesktopSpecialAction.ClickAccompaniment:
-				QueueAtomicControlClick(point, workingArea, "Accompaniment");
+				QueueAccessibleControlAction("Accompaniment", workingArea,
+					new[] { "伴唱", "伴奏", "Accompaniment" });
 				return new IntPtr(1);
 			case DesktopSpecialAction.ClickPlayerStyle:
-				QueueAtomicControlClick(point, workingArea, "Player style");
+				QueueAccessibleControlAction("Player style", workingArea,
+					new[] { "播放器样式", "Player style" }, presentPopup: true);
 				return new IntPtr(1);
 			case DesktopSpecialAction.ClickQuality:
-				QueueAtomicControlClick(point, workingArea, "Audio quality");
+				QueueAccessibleControlAction("Audio quality", workingArea,
+					new[] { "切换品质", "Change quality" }, presentPopup: true);
 				return new IntPtr(1);
 			case DesktopSpecialAction.ClickSoundEffects:
-				QueueAtomicControlClick(point, workingArea, "Sound effects");
+				QueueAccessibleControlAction("Sound effects", workingArea,
+					new[] { "音效", "Sound effects" }, presentPopup: true);
 				return new IntPtr(1);
 			case DesktopSpecialAction.ToggleNativePlaylist:
-				QueueToggleNativePlaylist(point, workingArea);
+				QueueToggleNativePlaylist(workingArea);
 				return new IntPtr(1);
 			}
-			IntPtr fixedTarget = IsProgressPoint(point) ? qqWindow : IntPtr.Zero;
-			interactionTarget = ForwardPointerToSource(point, workingArea,
-				WmLButtonDown, new IntPtr(1), fixedTarget);
-			if (interactionTarget != IntPtr.Zero)
-			{
-				interactionActive = true;
-				interactionStarted = DateTime.UtcNow;
-				return new IntPtr(1);
-			}
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			QueueAccessiblePointAction(point, workingArea);
+			return new IntPtr(1);
 		case 522u:
 		{
 			short delta = (short)(mSLLHOOKSTRUCT.mouseData >> 16);
@@ -1366,7 +1369,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 	}
 
-	private bool IsQQInteractionPoint(Point point, Rectangle work, bool includePlayerFallback)
+	private bool IsQQInteractionPoint(Point point)
 	{
 		Rectangle[] areas = qqInteractiveAreas;
 		for (int i = 0; i < areas.Length; i++)
@@ -1376,9 +1379,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				return true;
 			}
 		}
-		// The bottom player strip is kept as a fallback because some QQ Music
-		// builds expose its canvas controls incompletely through MSAA.
-		return includePlayerFallback && DesktopInputPolicy.IsPlayerFallbackPoint(point, work);
+		return false;
 	}
 
 	private bool IsVolumePoint(Point point)
@@ -1447,22 +1448,45 @@ internal sealed class WallpaperContext : ApplicationContext
 		return false;
 	}
 
-	private void QueueAtomicControlClick(Point point, Rectangle work, string controlName)
+	private void QueueAccessibleControlAction(string controlName, Rectangle work,
+		string[] descriptions, bool presentPopup = false)
 	{
 		try
 		{
 			window.BeginInvoke((Action)delegate
 			{
 				ResetPointerInteraction();
-				AtomicControlClick(point, work);
+				HashSet<IntPtr> visibleBefore = presentPopup
+					? GetVisibleQQTopLevelWindows() : null;
+				bool invoked = TryInvokeQQControl(descriptions);
 				nextAccessibilityRefresh = DateTime.MinValue;
-				Log(controlName + " clicked atomically through its MSAA bounds.");
+				Log(controlName + " invoked through its MSAA control; applied=" + invoked);
+				if (invoked && presentPopup)
+					QueuePresentNewQQPopup(visibleBefore, work, controlName);
 			});
 		}
 		catch { }
 	}
 
-	private void QueueToggleNativePlaylist(Point point, Rectangle work)
+	private void QueueAccessiblePointAction(Point point, Rectangle work)
+	{
+		try
+		{
+			window.BeginInvoke((Action)delegate
+			{
+				if (!TryMapToSource(point, work, out var ignoredTarget,
+					out var sourcePoint)) return;
+				bool invoked = QQMusicAccessibility.TryGetControlActionPointAtPoint(
+					qqWindow, new Point(sourcePoint.X, sourcePoint.Y),
+					out Point actionPoint) && PostQQControlClick(actionPoint);
+				nextAccessibilityRefresh = DateTime.MinValue;
+				Log("MSAA point control invoked; applied=" + invoked);
+			});
+		}
+		catch { }
+	}
+
+	private void QueueToggleNativePlaylist(Rectangle work)
 	{
 		ResetPointerInteraction();
 		ThreadPool.QueueUserWorkItem(delegate
@@ -1474,13 +1498,16 @@ internal sealed class WallpaperContext : ApplicationContext
 				if (!WaitForPopupToHide(comments, 300))
 					Native.ShowWindow(comments, 0);
 			}
-			AtomicControlClick(point, work);
+			HashSet<IntPtr> visibleBefore = GetVisibleQQTopLevelWindows();
+			bool invoked = TryInvokeQQControl("播放队列", "播放列表", "Play queue",
+				"Playlist");
 			nextAccessibilityRefresh = DateTime.MinValue;
-			Log("Native playlist toggled by an atomic control-bound click.");
+			Log("Native playlist invoked through its MSAA control; applied=" + invoked);
+			if (invoked) QueuePresentNewQQPopup(visibleBefore, work, "Native playlist");
 		});
 	}
 
-	private void QueueShowNativeComments(Point point, Rectangle work)
+	private void QueueShowNativeComments(Rectangle work)
 	{
 		ResetPointerInteraction();
 		ThreadPool.QueueUserWorkItem(delegate
@@ -1488,17 +1515,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			IntPtr playlist = FindQQMusicPopupWindow("播放队列", "Play queue");
 			if (playlist != IntPtr.Zero && Native.IsWindowVisible(playlist))
 			{
-				Rectangle[] playlistAreas = playlistControlAreas;
-				if (playlistAreas.Length > 0)
-				{
-					Rectangle control = playlistAreas[0];
-					AtomicControlClick(new Point(control.Left + control.Width / 2,
-						control.Top + control.Height / 2), work);
-				}
-				else
-				{
-					Native.PostMessage(playlist, WmClose, IntPtr.Zero, IntPtr.Zero);
-				}
+				TryInvokeQQControl("播放队列", "播放列表", "Play queue", "Playlist");
 				if (!WaitForPopupToHide(playlist, 400))
 				{
 					Native.PostMessage(playlist, WmClose, IntPtr.Zero, IntPtr.Zero);
@@ -1506,11 +1523,11 @@ internal sealed class WallpaperContext : ApplicationContext
 				}
 				Log("Native playlist closed before opening comments.");
 			}
-			OpenNativeComments(point, work);
+			OpenNativeComments(work);
 		});
 	}
 
-	private void OpenNativeComments(Point point, Rectangle work)
+	private void OpenNativeComments(Rectangle work)
 	{
 		IntPtr existingComments = FindQQMusicCommentWindow();
 		if (existingComments != IntPtr.Zero &&
@@ -1520,19 +1537,19 @@ internal sealed class WallpaperContext : ApplicationContext
 			Log("Existing native comment window restored to the working area.");
 			return;
 		}
-		AtomicControlClick(point, work);
-		Log("Native comments opened by background control-bound click.");
-		QueuePresentCommentWindow(point, work);
+		bool invoked = TryInvokeQQControl("评论", "Comments");
+		Log("Native comments invoked through its MSAA control; applied=" + invoked);
+		if (invoked) QueuePresentCommentWindow(work);
 	}
 
-	private void QueuePresentCommentWindow(Point point, Rectangle work)
+	private void QueuePresentCommentWindow(Rectangle work)
 	{
 		ThreadPool.QueueUserWorkItem(delegate
 		{
 			if (TryPresentCommentWindow(work, 12)) return;
-			// QQ keeps hidden popup state internally. A second atomic toggle repairs
+			// QQ keeps hidden popup state internally. A second control action repairs
 			// that state after a prior forced hide or playlist transition.
-			AtomicControlClick(point, work);
+			TryInvokeQQControl("评论", "Comments");
 			Log("Native comment state required one synchronized retry.");
 			if (TryPresentCommentWindow(work, 20)) return;
 			Log("Native comment window did not become visible after background click.");
@@ -1556,10 +1573,42 @@ internal sealed class WallpaperContext : ApplicationContext
 		return false;
 	}
 
-	private void AtomicControlClick(Point point, Rectangle work)
+	private bool TryInvokeQQControl(params string[] descriptions)
 	{
-		ForwardPointerToSource(point, work, WmLButtonDown, new IntPtr(1), qqWindow);
-		ForwardPointerToSource(point, work, WmLButtonUp, IntPtr.Zero, qqWindow);
+		if (!Native.GetWindowRect(qqWindow, out var rect)) return false;
+		if (!QQMusicAccessibility.TryGetControlActionPoint(qqWindow,
+			Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom),
+			out Point actionPoint, descriptions)) return false;
+		Rectangle sourceBounds = Rectangle.FromLTRB(rect.Left, rect.Top,
+			rect.Right, rect.Bottom);
+		if (!sourceBounds.Contains(actionPoint))
+		{
+			actionPoint.Offset(bottomControlCorrectionX, bottomControlCorrectionY);
+			if (!sourceBounds.Contains(actionPoint)) return false;
+		}
+		return PostQQControlClick(actionPoint);
+	}
+
+	private bool PostQQControlClick(Point sourcePoint)
+	{
+		if (!Native.IsWindow(qqWindow)) return false;
+		Native.POINT clientPoint = new Native.POINT
+		{
+			X = sourcePoint.X,
+			Y = sourcePoint.Y
+		};
+		if (!Native.ScreenToClient(qqWindow, ref clientPoint)) return false;
+		IntPtr lParam = MakeLParam(clientPoint.X, clientPoint.Y);
+		uint[] messages = DesktopInputPolicy.GetControlActivationMessages();
+		for (int index = 0; index < messages.Length; index++)
+		{
+			uint message = messages[index];
+			IntPtr keyState = message == WmLButtonDown ? new IntPtr(1) : IntPtr.Zero;
+			if (!Native.PostMessage(qqWindow, message, keyState, lParam)) return false;
+			if (message == WmLButtonDown)
+				Thread.Sleep(DesktopInputPolicy.ControlActivationHoldMilliseconds);
+		}
+		return true;
 	}
 
 	private void ResetPointerInteraction()
@@ -1628,6 +1677,95 @@ internal sealed class WallpaperContext : ApplicationContext
 		if (comments == IntPtr.Zero || !Native.IsWindowVisible(comments)) return;
 		Native.ShowWindow(comments, 0);
 		Log("Native comment window dismissed by a blank desktop click.");
+	}
+
+	private void DismissTransientQQUi()
+	{
+		HideNativeCommentWindow();
+		PostCancelAndEscape(qqWindow);
+		Native.EnumChildWindows(qqWindow, delegate(IntPtr child, IntPtr data)
+		{
+			PostCancelAndEscape(child);
+			return true;
+		}, IntPtr.Zero);
+		Native.GetWindowThreadProcessId(qqWindow, out var sourceProcessId);
+		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
+		{
+			if (candidate == qqWindow || !Native.IsWindowVisible(candidate)) return true;
+			Native.GetWindowThreadProcessId(candidate, out var processId);
+			if (processId == sourceProcessId) PostCancelAndEscape(candidate);
+			return true;
+		}, IntPtr.Zero);
+		try
+		{
+			window.BeginInvoke((Action)delegate
+			{
+				volumeOverlay.Hide();
+				playbackModeOverlay.Hide();
+			});
+		}
+		catch { }
+		Log("Transient QQ UI dismissed by window/control messages.");
+	}
+
+	private static void PostCancelAndEscape(IntPtr target)
+	{
+		if (target == IntPtr.Zero || !Native.IsWindow(target)) return;
+		Native.PostMessage(target, WmCancelMode, IntPtr.Zero, IntPtr.Zero);
+		Native.PostMessage(target, WmKeyDown, new IntPtr(VkEscape), IntPtr.Zero);
+		Native.PostMessage(target, WmKeyUp, new IntPtr(VkEscape), IntPtr.Zero);
+	}
+
+	private HashSet<IntPtr> GetVisibleQQTopLevelWindows()
+	{
+		HashSet<IntPtr> result = new HashSet<IntPtr>();
+		Native.GetWindowThreadProcessId(qqWindow, out var sourceProcessId);
+		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
+		{
+			Native.GetWindowThreadProcessId(candidate, out var processId);
+			if (processId == sourceProcessId && Native.IsWindowVisible(candidate))
+				result.Add(candidate);
+			return true;
+		}, IntPtr.Zero);
+		return result;
+	}
+
+	private void QueuePresentNewQQPopup(HashSet<IntPtr> visibleBefore,
+		Rectangle work, string controlName)
+	{
+		ThreadPool.QueueUserWorkItem(delegate
+		{
+			for (int attempt = 0; attempt < 20; attempt++)
+			{
+				HashSet<IntPtr> current = GetVisibleQQTopLevelWindows();
+				foreach (IntPtr candidate in current)
+				{
+					if (candidate == qqWindow || visibleBefore.Contains(candidate)) continue;
+					if (!TryPositionQQPopup(candidate, work)) continue;
+					Log(controlName + " popup positioned in the working area; hwnd=" +
+						candidate.ToInt64());
+					return;
+				}
+				Thread.Sleep(50);
+			}
+		});
+	}
+
+	private bool TryPositionQQPopup(IntPtr popup, Rectangle work)
+	{
+		if (!Native.GetWindowRect(popup, out var popupRect) ||
+			!Native.GetWindowRect(qqWindow, out var sourceRect)) return false;
+		int width = popupRect.Right - popupRect.Left;
+		int height = popupRect.Bottom - popupRect.Top;
+		if (width < 2 || height < 2) return false;
+		Rectangle current = Rectangle.FromLTRB(popupRect.Left, popupRect.Top,
+			popupRect.Right, popupRect.Bottom);
+		Rectangle source = Rectangle.FromLTRB(sourceRect.Left, sourceRect.Top,
+			sourceRect.Right, sourceRect.Bottom);
+		Rectangle target = DesktopInputPolicy.GetVisiblePopupBounds(current, source, work);
+		Native.ShowWindow(popup, SwShowNoActivate);
+		return Native.SetWindowPos(popup, IntPtr.Zero, target.Left, target.Top,
+			target.Width, target.Height, SwpShowWindow | SwpNoActivate);
 	}
 
 	private void QueueSeekToSeconds(int seconds, Rectangle work)
@@ -1777,7 +1915,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			try
 			{
-				Rectangle[] areas = QQMusicAccessibility.GetInteractiveBounds(source,
+				Rectangle[] areas = QQMusicAccessibility.GetInteractiveBoundsIncludingHidden(source,
 					new Rectangle(-32768, -32768, 65536, 65536));
 				if (source == qqWindow)
 				{
@@ -1835,9 +1973,11 @@ internal sealed class WallpaperContext : ApplicationContext
 						Rectangle[] qualityCandidates = GetMappedControlCandidates(source,
 							sourceRect, visibleArea, includeHidden: true, "切换品质",
 							"Change quality");
-						Point bottomControlCorrection = Point.Empty;
+						Point inferredBottomCorrection = Point.Empty;
 						DesktopInputPolicy.TryInferOffscreenControlCorrection(
-							qualityCandidates, visibleArea, out bottomControlCorrection);
+							qualityCandidates, visibleArea, out inferredBottomCorrection);
+						bottomControlCorrectionX = inferredBottomCorrection.X;
+						bottomControlCorrectionY = inferredBottomCorrection.Y;
 						lyricTranslationControlAreas = GetUsableControlAreas(
 							GetMappedControlCandidates(source, sourceRect, visibleArea,
 								includeHidden: true, "翻译歌词", "Translation lyrics"),
@@ -1849,17 +1989,17 @@ internal sealed class WallpaperContext : ApplicationContext
 						playerStyleControlAreas = GetUsableControlAreas(
 							GetMappedControlCandidates(source, sourceRect, visibleArea,
 								includeHidden: true, "播放器样式", "Player style"),
-							visibleArea, bottomControlCorrection);
+							visibleArea, inferredBottomCorrection);
 						qualityControlAreas = GetUsableControlAreas(qualityCandidates,
-							visibleArea, bottomControlCorrection);
+							visibleArea, inferredBottomCorrection);
 						soundEffectsControlAreas = GetUsableControlAreas(
 							GetMappedControlCandidates(source, sourceRect, visibleArea,
 								includeHidden: true, "音效", "Sound effects"),
-							visibleArea, bottomControlCorrection);
+							visibleArea, inferredBottomCorrection);
 						playlistControlAreas = GetUsableControlAreas(
 							GetMappedControlCandidates(source, sourceRect, visibleArea,
 								includeHidden: true, "播放队列", "播放列表", "Play queue",
-								"Playlist"), visibleArea, bottomControlCorrection);
+								"Playlist"), visibleArea, inferredBottomCorrection);
 
 						List<MediaControlArea> mediaAreas = new List<MediaControlArea>();
 						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
@@ -2002,7 +2142,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		for (int descriptionIndex = 0; descriptionIndex < descriptions.Length;
 			descriptionIndex++)
 		{
-			Rectangle[] controls = QQMusicAccessibility.GetVisibleControlBounds(source,
+			Rectangle[] controls = QQMusicAccessibility.GetControlBoundsIncludingHidden(source,
 				descriptions[descriptionIndex], AllAccessibleSpace);
 			for (int controlIndex = 0; controlIndex < controls.Length; controlIndex++)
 			{
@@ -2188,13 +2328,21 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 	}
 
-	private bool TryHandleMediaButton(Point point, Rectangle work)
+	private bool TryHandleMediaButton(Point point)
 	{
-		if (!DesktopInputPolicy.TryGetMediaKey(point, work, mediaControlAreas,
+		if (!DesktopInputPolicy.TryGetMediaKey(point, mediaControlAreas,
 			progressControlAreas, out byte key)) return false;
-		Native.keybd_event(key, 0, 0u, UIntPtr.Zero);
-		Native.keybd_event(key, 0, 2u, UIntPtr.Zero);
-		return true;
+		switch (key)
+		{
+		case 179:
+			return TryInvokeQQControl("播放", "暂停", "Play", "Pause");
+		case 177:
+			return TryInvokeQQControl("上一首", "上一曲", "Previous", "Previous track");
+		case 176:
+			return TryInvokeQQControl("下一首", "下一曲", "Next", "Next track");
+		default:
+			return false;
+		}
 	}
 
 	private bool IsQQMusicWindow(IntPtr hwnd)

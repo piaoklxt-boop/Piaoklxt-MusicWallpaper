@@ -146,15 +146,6 @@ internal static class Native
 	public static extern bool GetCursorPos(out POINT point);
 
 	[DllImport("user32.dll")]
-	public static extern bool SetCursorPos(int x, int y);
-
-	[DllImport("user32.dll")]
-	public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
-
-	[DllImport("user32.dll")]
-	public static extern void keybd_event(byte key, byte scan, uint flags, UIntPtr extraInfo);
-
-	[DllImport("user32.dll")]
 	public static extern IntPtr WindowFromPoint(POINT point);
 
 	[DllImport("user32.dll")]

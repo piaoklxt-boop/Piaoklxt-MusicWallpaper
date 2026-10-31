@@ -13,20 +13,21 @@ internal static class Program
 		Point progressCenter = new Point(960, 1000);
 
 		AssertFalse("progress does not trigger play/pause",
-			DesktopInputPolicy.TryGetMediaKey(progressCenter, work,
+			DesktopInputPolicy.TryGetMediaKey(progressCenter,
 				Array.Empty<MediaControlArea>(), new[] { progress }, out _));
 
 		MediaControlArea play = new MediaControlArea(
 			new Rectangle(938, 970, 44, 36), 179);
 		AssertTrue("discovered play control is used",
-			DesktopInputPolicy.TryGetMediaKey(new Point(960, 980), work,
+			DesktopInputPolicy.TryGetMediaKey(new Point(960, 980),
 				new[] { play }, Array.Empty<Rectangle>(), out byte key) && key == 179);
 		AssertFalse("discovered play control has no oversized fallback",
-			DesktopInputPolicy.TryGetMediaKey(new Point(960, 1015), work,
+			DesktopInputPolicy.TryGetMediaKey(new Point(960, 1015),
 				new[] { play }, Array.Empty<Rectangle>(), out _));
 
-		AssertFalse("player fallback is limited to the real bottom control strip",
-			DesktopInputPolicy.IsPlayerFallbackPoint(new Point(1000, work.Bottom - 100), work));
+		AssertFalse("undiscovered player controls have no coordinate fallback",
+			DesktopInputPolicy.TryGetMediaKey(new Point(960, 980),
+				Array.Empty<MediaControlArea>(), Array.Empty<Rectangle>(), out _));
 
 		AssertEqual("comment opens native QQ Music",
 			DesktopSpecialAction.ShowNativeComments,
@@ -79,16 +80,27 @@ internal static class Program
 			DesktopInputPolicy.ShouldConsumeProgressPointerEvent(513u));
 		AssertTrue("progress up stays away from Explorer",
 			DesktopInputPolicy.ShouldConsumeProgressPointerEvent(514u));
-		AssertTrue("blank desktop click dismisses comments",
-			DesktopInputPolicy.ShouldDismissComments(513u, true, false));
-		AssertFalse("desktop icon click does not dismiss comments",
-			DesktopInputPolicy.ShouldDismissComments(513u, true, true));
+		AssertTrue("blank desktop click dismisses transient QQ UI",
+			DesktopInputPolicy.ShouldDismissTransientUi(513u, true, false));
+		AssertFalse("desktop icon click does not dismiss transient QQ UI",
+			DesktopInputPolicy.ShouldDismissTransientUi(513u, true, true));
+		uint[] activationMessages = DesktopInputPolicy.GetControlActivationMessages();
+		AssertTrue("control activation preserves hover, press, and release order",
+			activationMessages.Length == 3 && activationMessages[0] == 512u &&
+			activationMessages[1] == 513u && activationMessages[2] == 514u);
+		AssertTrue("menu controls retain a real press interval",
+			DesktopInputPolicy.ControlActivationHoldMilliseconds >= 50);
 
 		Rectangle commentWindow = new Rectangle(-490, 12, 478, 943);
 		Rectangle commentWork = new Rectangle(0, 0, 1920, 1032);
 		AssertEqual("comment window is restored inside the working area",
 			new Rectangle(1430, 44, 478, 943),
 			DesktopInputPolicy.GetVisibleCommentBounds(commentWindow, commentWork));
+		AssertEqual("offscreen QQ popup follows the source window onto the desktop",
+			new Rectangle(1422, 508, 432, 478),
+			DesktopInputPolicy.GetVisiblePopupBounds(
+				new Rectangle(-654, 508, 432, 478),
+				new Rectangle(-2076, 0, 1920, 1032), commentWork));
 
 		AssertTrue("lyric timestamp is parsed",
 			DesktopInputPolicy.TryParseTimestamp(" 03:32 ", out int lyricSeconds) &&

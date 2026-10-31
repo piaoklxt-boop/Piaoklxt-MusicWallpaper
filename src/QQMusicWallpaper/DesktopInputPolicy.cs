@@ -54,6 +54,13 @@ internal readonly struct TimestampControlArea
 
 internal static class DesktopInputPolicy
 {
+	public const int ControlActivationHoldMilliseconds = 80;
+
+	public static uint[] GetControlActivationMessages()
+	{
+		return new[] { 512u, 513u, 514u };
+	}
+
 	public static ProgressPointerAction ResolveProgressPointerAction(uint message,
 		bool progressInteractionActive)
 	{
@@ -70,7 +77,7 @@ internal static class DesktopInputPolicy
 		return message != 512u;
 	}
 
-	public static bool ShouldDismissComments(uint message, bool isDesktopSurface,
+	public static bool ShouldDismissTransientUi(uint message, bool isDesktopSurface,
 		bool isDesktopIcon)
 	{
 		return message == 513u && isDesktopSurface && !isDesktopIcon;
@@ -149,9 +156,21 @@ internal static class DesktopInputPolicy
 			workingArea.Top + (workingArea.Height - height) / 2, width, height);
 	}
 
-	public static bool IsPlayerFallbackPoint(Point point, Rectangle work)
+	public static Rectangle GetVisiblePopupBounds(Rectangle popupWindow,
+		Rectangle sourceWindow, Rectangle workingArea)
 	{
-		return point.Y >= work.Bottom - 84;
+		int width = Math.Min(Math.Max(1, popupWindow.Width), workingArea.Width);
+		int height = Math.Min(Math.Max(1, popupWindow.Height), workingArea.Height);
+		int x = popupWindow.Left;
+		int y = popupWindow.Top;
+		if (!workingArea.IntersectsWith(popupWindow))
+		{
+			x += workingArea.Left - sourceWindow.Left;
+			y += workingArea.Top - sourceWindow.Top;
+		}
+		x = Math.Max(workingArea.Left, Math.Min(x, workingArea.Right - width));
+		y = Math.Max(workingArea.Top, Math.Min(y, workingArea.Bottom - height));
+		return new Rectangle(x, y, width, height);
 	}
 
 	public static bool IsPointInAny(Point point, Rectangle[] areas)
@@ -189,8 +208,8 @@ internal static class DesktopInputPolicy
 		return bestDistance != int.MaxValue;
 	}
 
-	public static bool TryGetMediaKey(Point point, Rectangle work,
-		MediaControlArea[] controls, Rectangle[] progressAreas, out byte key)
+	public static bool TryGetMediaKey(Point point, MediaControlArea[] controls,
+		Rectangle[] progressAreas, out byte key)
 	{
 		if (IsPointInAny(point, progressAreas))
 		{
@@ -207,32 +226,6 @@ internal static class DesktopInputPolicy
 			}
 		}
 
-		// Last-resort geometry for QQ Music builds which expose no media buttons.
-		// Keep it deliberately smaller than the visible button so it cannot reach
-		// the progress bar above or below the control row.
-		int centerY = work.Bottom - 48;
-		if (Math.Abs(point.Y - centerY) > 14)
-		{
-			key = 0;
-			return false;
-		}
-		int centerX = work.Left + work.Width / 2;
-		int offsetX = point.X - centerX;
-		if (Math.Abs(offsetX) <= 20)
-		{
-			key = 179;
-			return true;
-		}
-		if (Math.Abs(offsetX + 52) <= 18)
-		{
-			key = 177;
-			return true;
-		}
-		if (Math.Abs(offsetX - 52) <= 18)
-		{
-			key = 176;
-			return true;
-		}
 		key = 0;
 		return false;
 	}
