@@ -402,7 +402,9 @@ internal static class QQMusicAccessibility
 			try
 			{
 				int role = Convert.ToInt32(node.get_accRole(childId));
-				string action = node.get_accDefaultAction(childId);
+				string action = "";
+				try { action = node.get_accDefaultAction(childId) ?? ""; }
+				catch { }
 				if (InteractiveRoles.Contains(role) || !string.IsNullOrWhiteSpace(action))
 				{
 					node.accLocation(out int left, out int top, out int width, out int height, childId);

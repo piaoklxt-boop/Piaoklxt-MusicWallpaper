@@ -84,6 +84,12 @@ internal static class Program
 			DesktopInputPolicy.ShouldDismissTransientUi(513u, true, false));
 		AssertFalse("desktop icon click does not dismiss transient QQ UI",
 			DesktopInputPolicy.ShouldDismissTransientUi(513u, true, true));
+		AssertEqual("QQ main surface cancellation never navigates back",
+			TransientDismissalAction.CancelOnly,
+			DesktopInputPolicy.ResolveTransientDismissalAction(isMainSurface: true));
+		AssertEqual("independent QQ popup cancellation may use Escape",
+			TransientDismissalAction.CancelAndEscape,
+			DesktopInputPolicy.ResolveTransientDismissalAction(isMainSurface: false));
 		uint[] activationMessages = DesktopInputPolicy.GetControlActivationMessages();
 		AssertTrue("control activation preserves hover, press, and release order",
 			activationMessages.Length == 3 && activationMessages[0] == 512u &&

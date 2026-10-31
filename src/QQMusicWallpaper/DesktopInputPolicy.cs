@@ -26,6 +26,12 @@ internal enum ProgressPointerAction
 	CommitSeek
 }
 
+internal enum TransientDismissalAction
+{
+	CancelOnly,
+	CancelAndEscape
+}
+
 internal readonly struct MediaControlArea
 {
 	public MediaControlArea(Rectangle bounds, byte virtualKey)
@@ -81,6 +87,13 @@ internal static class DesktopInputPolicy
 		bool isDesktopIcon)
 	{
 		return message == 513u && isDesktopSurface && !isDesktopIcon;
+	}
+
+	public static TransientDismissalAction ResolveTransientDismissalAction(
+		bool isMainSurface)
+	{
+		return isMainSurface ? TransientDismissalAction.CancelOnly :
+			TransientDismissalAction.CancelAndEscape;
 	}
 
 	public static bool TryParseTimestamp(string text, out int seconds)

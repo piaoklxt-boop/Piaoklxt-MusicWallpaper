@@ -1371,6 +1371,19 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool IsQQInteractionPoint(Point point)
 	{
+		if (DesktopInputPolicy.IsPointInAny(point, volumeControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, playbackModeControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, commentControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, lyricTranslationControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, accompanimentControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, playerStyleControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, qualityControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, soundEffectsControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, playlistControlAreas) ||
+			DesktopInputPolicy.IsPointInAny(point, progressControlAreas))
+		{
+			return true;
+		}
 		Rectangle[] areas = qqInteractiveAreas;
 		for (int i = 0; i < areas.Length; i++)
 		{
@@ -1682,10 +1695,12 @@ internal sealed class WallpaperContext : ApplicationContext
 	private void DismissTransientQQUi()
 	{
 		HideNativeCommentWindow();
-		PostCancelAndEscape(qqWindow);
+		PostTransientDismissal(qqWindow,
+			DesktopInputPolicy.ResolveTransientDismissalAction(isMainSurface: true));
 		Native.EnumChildWindows(qqWindow, delegate(IntPtr child, IntPtr data)
 		{
-			PostCancelAndEscape(child);
+			PostTransientDismissal(child,
+				DesktopInputPolicy.ResolveTransientDismissalAction(isMainSurface: true));
 			return true;
 		}, IntPtr.Zero);
 		Native.GetWindowThreadProcessId(qqWindow, out var sourceProcessId);
@@ -1693,7 +1708,12 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			if (candidate == qqWindow || !Native.IsWindowVisible(candidate)) return true;
 			Native.GetWindowThreadProcessId(candidate, out var processId);
-			if (processId == sourceProcessId) PostCancelAndEscape(candidate);
+			if (processId == sourceProcessId)
+			{
+				PostTransientDismissal(candidate,
+					DesktopInputPolicy.ResolveTransientDismissalAction(
+						isMainSurface: false));
+			}
 			return true;
 		}, IntPtr.Zero);
 		try
@@ -1708,10 +1728,12 @@ internal sealed class WallpaperContext : ApplicationContext
 		Log("Transient QQ UI dismissed by window/control messages.");
 	}
 
-	private static void PostCancelAndEscape(IntPtr target)
+	private static void PostTransientDismissal(IntPtr target,
+		TransientDismissalAction action)
 	{
 		if (target == IntPtr.Zero || !Native.IsWindow(target)) return;
 		Native.PostMessage(target, WmCancelMode, IntPtr.Zero, IntPtr.Zero);
+		if (action != TransientDismissalAction.CancelAndEscape) return;
 		Native.PostMessage(target, WmKeyDown, new IntPtr(VkEscape), IntPtr.Zero);
 		Native.PostMessage(target, WmKeyUp, new IntPtr(VkEscape), IntPtr.Zero);
 	}
