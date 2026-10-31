@@ -210,10 +210,6 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private IntPtr interactionTarget;
 
-	private IntPtr interactionForeground;
-
-	private System.Threading.Timer interactionTimer;
-
 	private DateTime interactionStarted = DateTime.MinValue;
 
 	private DateTime taskbarClickUntil = DateTime.MinValue;
@@ -229,6 +225,10 @@ internal sealed class WallpaperContext : ApplicationContext
 	private volatile Rectangle[] playbackModeControlAreas = new Rectangle[0];
 
 	private volatile Rectangle[] commentControlAreas = new Rectangle[0];
+
+	private volatile Rectangle[] progressControlAreas = new Rectangle[0];
+
+	private volatile MediaControlArea[] mediaControlAreas = new MediaControlArea[0];
 
 	private volatile string currentPlaybackMode = "列表循环";
 
@@ -1202,24 +1202,16 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 		if (flag)
 		{
-			if (num == 513 && TryHandleMediaButton(point, workingArea))
+			if (!sourcePresented && num == 513 &&
+				TryHandleMediaButton(point, workingArea))
 			{
 				return new IntPtr(1);
 			}
 			if (sourcePresented)
 			{
-				switch (num)
-				{
-				case 513u:
-					CancelInteractionTimer();
-					break;
-				case 514u:
-					ScheduleLowerSource(1200);
-					break;
-				case 522u:
-					ScheduleLowerSource(1500);
-					break;
-				}
+				// Native QQ Music (including its comment surface) stays available while
+				// it owns the foreground. MaintainWallpaper parks it again after the user
+				// switches away instead of hiding it after a single click.
 			}
 			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 		}
@@ -1239,24 +1231,22 @@ internal sealed class WallpaperContext : ApplicationContext
 			{
 				return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 			}
-			if (IsVolumePoint(point))
+			switch (DesktopInputPolicy.ResolveSpecialAction(IsVolumePoint(point),
+				IsPlaybackModePoint(point), IsCommentPoint(point)))
 			{
+			case DesktopSpecialAction.ShowVolume:
 				QueueShowVolume();
 				return new IntPtr(1);
-			}
-			if (IsPlaybackModePoint(point))
-			{
+			case DesktopSpecialAction.ShowPlaybackModes:
 				QueueShowPlaybackModes();
 				return new IntPtr(1);
-			}
-			if (IsCommentPoint(point))
-			{
-				// QQ Music opens comments in a separate native surface which cannot be
-				// mirrored reliably.  Treat the desktop copy as intentionally disabled.
+			case DesktopSpecialAction.ShowNativeComments:
+				QueueShowNativeComments();
 				return new IntPtr(1);
 			}
+			IntPtr fixedTarget = IsProgressPoint(point) ? qqWindow : IntPtr.Zero;
 			interactionTarget = ForwardPointerToSource(point, workingArea,
-				WmLButtonDown, new IntPtr(1), IntPtr.Zero);
+				WmLButtonDown, new IntPtr(1), fixedTarget);
 			if (interactionTarget != IntPtr.Zero)
 			{
 				interactionActive = true;
@@ -1292,7 +1282,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 		// The bottom player strip is kept as a fallback because some QQ Music
 		// builds expose its canvas controls incompletely through MSAA.
-		return includePlayerFallback && point.Y >= work.Bottom - 150;
+		return includePlayerFallback && DesktopInputPolicy.IsPlayerFallbackPoint(point, work);
 	}
 
 	private bool IsVolumePoint(Point point)
@@ -1311,6 +1301,31 @@ internal sealed class WallpaperContext : ApplicationContext
 	{
 		Rectangle[] areas = commentControlAreas;
 		return areas.Length > 0 && areas[0].Contains(point);
+	}
+
+	private bool IsProgressPoint(Point point)
+	{
+		return DesktopInputPolicy.IsPointInAny(point, progressControlAreas);
+	}
+
+	private void QueueShowNativeComments()
+	{
+		try
+		{
+			window.BeginInvoke((Action)delegate
+			{
+				interactionActive = false;
+				interactionTarget = IntPtr.Zero;
+				PresentSourceWindow();
+				Native.SetForegroundWindow(qqWindow);
+				bool invoked = QQMusicAccessibility.TryInvokeVisibleControl(qqWindow,
+					"评论", AllAccessibleSpace) ||
+					QQMusicAccessibility.TryInvokeVisibleControl(qqWindow,
+						"Comments", AllAccessibleSpace);
+				Log("Native comments presented; invoked=" + invoked);
+			});
+		}
+		catch { }
 	}
 
 	private void QueueShowVolume()
@@ -1480,13 +1495,65 @@ internal sealed class WallpaperContext : ApplicationContext
 								break;
 							}
 						}
-						if (QQMusicAccessibility.TryFindVisibleControl(source, "评论",
-							AllAccessibleSpace, out var commentBounds))
+						Rectangle[] comments = QQMusicAccessibility.GetVisibleControlBounds(
+							source, "评论", AllAccessibleSpace);
+						if (comments.Length == 0)
 						{
+							comments = QQMusicAccessibility.GetVisibleControlBounds(source,
+								"Comments", AllAccessibleSpace);
+						}
+						if (comments.Length > 0)
+						{
+							Rectangle commentBounds = comments[0];
 							commentBounds.Offset(visibleArea.Left - sourceRect.Left,
 								visibleArea.Top - sourceRect.Top);
 							commentControlAreas = new[] { commentBounds };
 						}
+
+						List<MediaControlArea> mediaAreas = new List<MediaControlArea>();
+						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
+							179, "播放", "暂停", "Play", "Pause");
+						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
+							177, "上一首", "上一曲", "Previous", "Previous track");
+						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
+							176, "下一首", "下一曲", "Next", "Next track");
+						mediaControlAreas = mediaAreas.ToArray();
+
+						List<Rectangle> sliderCandidates = new List<Rectangle>(
+							QQMusicAccessibility.GetVisibleSliderBounds(source,
+								AllAccessibleSpace));
+						string[] progressDescriptions =
+						{
+							"播放进度", "播放进度条", "进度", "Progress", "Seek"
+						};
+						for (int progressIndex = 0; progressIndex <
+							progressDescriptions.Length; progressIndex++)
+						{
+							sliderCandidates.AddRange(
+								QQMusicAccessibility.GetVisibleControlBounds(source,
+									progressDescriptions[progressIndex], AllAccessibleSpace));
+						}
+						Rectangle bestProgress = Rectangle.Empty;
+						for (int sliderIndex = 0; sliderIndex < sliderCandidates.Count;
+							sliderIndex++)
+						{
+							Rectangle slider = sliderCandidates[sliderIndex];
+							if (slider.Width < Math.Max(120, slider.Height * 8) ||
+								slider.Width <= bestProgress.Width) continue;
+							slider.Offset(visibleArea.Left - sourceRect.Left,
+								visibleArea.Top - sourceRect.Top);
+							slider = Rectangle.Intersect(visibleArea, slider);
+							if (!slider.IsEmpty && slider.Height < 12)
+							{
+								int centerY = slider.Top + slider.Height / 2;
+								slider = Rectangle.Intersect(visibleArea, new Rectangle(
+									slider.Left, centerY - 6, slider.Width, 12));
+							}
+							if (!slider.IsEmpty && slider.Top >= visibleArea.Top +
+								visibleArea.Height / 2) bestProgress = slider;
+						}
+						progressControlAreas = bestProgress.IsEmpty
+							? new Rectangle[0] : new[] { bestProgress };
 					}
 					qqInteractiveAreas = areas;
 				}
@@ -1496,6 +1563,37 @@ internal sealed class WallpaperContext : ApplicationContext
 				Interlocked.Exchange(ref accessibilityRefreshRunning, 0);
 			}
 		});
+	}
+
+	private static void AddMediaControlAreas(List<MediaControlArea> result,
+		IntPtr source, Native.RECT sourceRect, Rectangle visibleArea, byte virtualKey,
+		params string[] descriptions)
+	{
+		for (int descriptionIndex = 0; descriptionIndex < descriptions.Length;
+			descriptionIndex++)
+		{
+			Rectangle[] controls = QQMusicAccessibility.GetVisibleControlBounds(source,
+				descriptions[descriptionIndex], AllAccessibleSpace);
+			for (int controlIndex = 0; controlIndex < controls.Length; controlIndex++)
+			{
+				Rectangle mapped = controls[controlIndex];
+				mapped.Offset(visibleArea.Left - sourceRect.Left,
+					visibleArea.Top - sourceRect.Top);
+				mapped = Rectangle.Intersect(visibleArea, mapped);
+				if (mapped.Width <= 1 || mapped.Height <= 1) continue;
+				bool duplicate = false;
+				for (int existingIndex = 0; existingIndex < result.Count; existingIndex++)
+				{
+					if (result[existingIndex].VirtualKey == virtualKey &&
+						result[existingIndex].Bounds == mapped)
+					{
+						duplicate = true;
+						break;
+					}
+				}
+				if (!duplicate) result.Add(new MediaControlArea(mapped, virtualKey));
+			}
+		}
 	}
 
 	private void ForwardHoverToSource(Point screenPoint, Rectangle work)
@@ -1639,72 +1737,13 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 	}
 
-	private void RaiseSourceForInput()
-	{
-		CancelInteractionTimer();
-		interactionForeground = Native.GetForegroundWindow();
-		interactionActive = true;
-		interactionStarted = DateTime.UtcNow;
-		sourcePresented = false;
-		AlignSourceToWorkingArea();
-		Native.SetForegroundWindow(qqWindow);
-	}
-
 	private bool TryHandleMediaButton(Point point, Rectangle work)
 	{
-		int num = work.Bottom - 40;
-		if (Math.Abs(point.Y - num) > 28)
-		{
-			return false;
-		}
-		int num2 = work.Left + work.Width / 2;
-		int num3 = point.X - num2;
-		byte key;
-		if (Math.Abs(num3) <= 24)
-		{
-			key = 179;
-		}
-		else if (Math.Abs(num3 + 52) <= 20)
-		{
-			key = 177;
-		}
-		else
-		{
-			if (Math.Abs(num3 - 52) > 20)
-			{
-				return false;
-			}
-			key = 176;
-		}
+		if (!DesktopInputPolicy.TryGetMediaKey(point, work, mediaControlAreas,
+			progressControlAreas, out byte key)) return false;
 		Native.keybd_event(key, 0, 0u, UIntPtr.Zero);
 		Native.keybd_event(key, 0, 2u, UIntPtr.Zero);
 		return true;
-	}
-
-	private void ScheduleLowerSource(int delayMilliseconds)
-	{
-		CancelInteractionTimer();
-		interactionTimer = new System.Threading.Timer(delegate
-		{
-			try
-			{
-				KeepSourceMaximizedBehindDesktop();
-				if (interactionForeground != IntPtr.Zero && Native.IsWindow(interactionForeground))
-				{
-					Native.SetForegroundWindow(interactionForeground);
-				}
-			}
-			finally
-			{
-				interactionActive = false;
-				interactionStarted = DateTime.MinValue;
-			}
-		}, null, delayMilliseconds, -1);
-	}
-
-	private void CancelInteractionTimer()
-	{
-		Interlocked.Exchange(ref interactionTimer, null)?.Dispose();
 	}
 
 	private bool IsQQMusicWindow(IntPtr hwnd)

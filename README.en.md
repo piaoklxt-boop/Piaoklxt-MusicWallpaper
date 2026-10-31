@@ -9,7 +9,8 @@ Turn the current QQ Music window into an interactive Windows desktop wallpaper. 
 ## Highlights
 
 - Live QQ Music rendering behind normal desktop icons, without keeping the QQ Music window in the foreground.
-- Working desktop playback, volume, playback-order and lyric-wheel controls.
+- Working desktop playback, progress seeking, volume, playback-order and lyric-wheel controls.
+- The comment button opens QQ Music's native interface and returns to the wallpaper after the user switches away.
 - Automatic Windows accent, taskbar, supported app chrome and File Explorer color synchronization.
 - A portable x64 package: extract, run, and let the app find or open QQ Music.
 - Automatic color restoration on wallpaper shutdown or application exit.
@@ -34,7 +35,6 @@ Turn the current QQ Music window into an interactive Windows desktop wallpaper. 
 ### Known issues
 
 - Clicking a lyric timestamp still does not seek playback; the unsuccessful experimental implementation is excluded from the release.
-- QQ Music's separate native comment panel cannot yet be used reliably through the desktop mirror.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete history.
 
@@ -51,6 +51,8 @@ No compiler, SDK, runtime setup, or manual configuration is required. QQ Music i
 - `Ctrl+Alt+U`: show or hide the desktop wallpaper.
 - Tray icon: toggle wallpaper, restore QQ Music, choose the player path, toggle startup, control theme synchronization, check for updates, view author information, or exit.
 - The desktop volume and playback-order controls use stable wallpaper pop-ups while applying changes to QQ Music in the background.
+- Click the desktop progress bar to seek. Play, previous, and next prefer QQ Music's exposed control bounds instead of broad coordinate targets.
+- Clicking comments temporarily presents the native QQ Music window for full comment access; it is parked again after you switch away.
 - Startup with Windows is enabled on first run and can be disabled from the tray menu.
 
 Settings and logs are stored in `%LOCALAPPDATA%\Piaoklxt-MusicWallpaper`, so the extracted program folder stays portable and read-only friendly. Existing settings from the former `QQMusicWallpaper` folder are imported automatically on first run.
@@ -61,7 +63,7 @@ Settings and logs are stored in `%LOCALAPPDATA%\Piaoklxt-MusicWallpaper`, so the
 - Windows 10 version 1903 or later: experimental.
 - QQ Music for Windows: required and installed separately.
 
-The main QQ Music window is mirrored. Clicking a lyric timestamp on the rendered desktop does not currently seek playback, although lyric scrolling works. The comment button is disabled on the wallpaper because QQ Music renders its comment panel as a separate native surface that cannot be mirrored reliably.
+The main QQ Music window is mirrored. The bottom playback-progress bar supports seeking. Clicking a lyric timestamp on the rendered desktop still does not seek playback, although lyric scrolling works. Because QQ Music renders comments as a separate native surface, the comment action temporarily presents the native QQ Music window instead of trying to composite that surface into the desktop mirror.
 
 On Windows 11, the portable package includes an optional minimal Explorer styling runtime. It colors the File Explorer top area with the synchronized accent color and does not require a separate Windhawk installation. If an existing Windhawk instance is already running, the bundled runtime stays inactive to avoid conflicts.
 

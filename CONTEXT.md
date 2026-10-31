@@ -19,7 +19,8 @@
 - Wallpaper startup expands QQ Music's player/details page through its exposed accessible control and verifies the visible page state; screen coordinates are never fixed to one resolution.
 - Explorer owns desktop icons and active filename editing; QQ Music owns blank rendered-player areas. Pointer clicks, drags, hover and lyrics-wheel input are mapped from the current desktop work area to the live QQ Music window and forwarded in the background, so desktop interaction never presents or focuses the source window.
 - User settings and logs live outside the portable release folder.
-- Desktop volume and playback-order pop-ups belong to the controller; their changes are applied to QQ Music in the background. The unreliable native comment panel is intentionally disabled on the wallpaper.
+- Desktop volume and playback-order pop-ups belong to the controller; their changes are applied to QQ Music in the background. The comment button presents QQ Music's native window because its separate comment surface cannot be mirrored; the source remains available until the user switches away.
+- Media buttons and the playback-progress slider use their exposed accessible bounds when available. Progress input is routed to the main QQ Music window so a seek cannot be mistaken for play/pause.
 - Lyric scrolling is routed to QQ Music, but clicking a lyric timestamp is not a supported seek operation in version 1.1.0.
 - The Explorer theme runtime starts only when no external Windhawk instance is active and stops with the controller when the controller started it.
 - Disabling or exiting the wallpaper restores ordinary access to QQ Music.

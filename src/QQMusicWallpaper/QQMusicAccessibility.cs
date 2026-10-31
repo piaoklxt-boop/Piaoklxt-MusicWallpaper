@@ -121,6 +121,60 @@ internal static class QQMusicAccessibility
 		return bounds.ToArray();
 	}
 
+	public static Rectangle[] GetVisibleSliderBounds(IntPtr window, Rectangle visibleArea)
+	{
+		List<Rectangle> bounds = new List<Rectangle>();
+		object accessibleObject = null;
+		Guid interfaceId = typeof(IAccessible).GUID;
+		try
+		{
+			if (AccessibleObjectFromWindow(window, ObjIdClient, ref interfaceId,
+				ref accessibleObject) != 0 || !(accessibleObject is IAccessible accessible))
+			{
+				return bounds.ToArray();
+			}
+			int visited = 0;
+			CollectRoleBounds(accessible, 51, visibleArea, 0, ref visited, bounds);
+		}
+		catch { }
+		return bounds.ToArray();
+	}
+
+	private static void CollectRoleBounds(IAccessible accessible, int expectedRole,
+		Rectangle visibleArea, int depth, ref int visited, List<Rectangle> bounds)
+	{
+		if (depth > MaxDepth || visited++ > MaxNodes) return;
+		int childCount;
+		try { childCount = accessible.accChildCount; }
+		catch { return; }
+		for (int index = 1; index <= childCount; index++)
+		{
+			IAccessible child = null;
+			try { child = accessible.get_accChild(index) as IAccessible; }
+			catch { }
+			IAccessible node = child ?? accessible;
+			object childId = child == null ? (object)index : 0;
+			if (IsHidden(node, childId)) continue;
+			try
+			{
+				if (Convert.ToInt32(node.get_accRole(childId)) == expectedRole)
+				{
+					node.accLocation(out int left, out int top, out int width,
+						out int height, childId);
+					Rectangle item = Rectangle.Intersect(visibleArea,
+						new Rectangle(left, top, width, height));
+					if (item.Width > 1 && item.Height > 0) bounds.Add(item);
+				}
+			}
+			catch { }
+			if (child != null)
+			{
+				CollectRoleBounds(child, expectedRole, visibleArea, depth + 1,
+					ref visited, bounds);
+			}
+		}
+	}
+
 	private static void CollectInteractiveBounds(IAccessible accessible, Rectangle visibleArea,
 		int depth, ref int visited, List<Rectangle> bounds)
 	{
