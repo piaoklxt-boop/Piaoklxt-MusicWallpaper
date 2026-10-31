@@ -30,7 +30,20 @@ internal static class Program
 
 		AssertEqual("comment opens native QQ Music",
 			DesktopSpecialAction.ShowNativeComments,
-			DesktopInputPolicy.ResolveSpecialAction(false, false, true));
+			DesktopInputPolicy.ResolveSpecialAction(false, false, true,
+				false, false, false));
+		AssertEqual("translation uses an atomic control click",
+			DesktopSpecialAction.ClickLyricTranslation,
+			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
+				true, false, false));
+		AssertEqual("accompaniment uses an atomic control click",
+			DesktopSpecialAction.ClickAccompaniment,
+			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
+				false, true, false));
+		AssertEqual("playlist uses the native popup lifecycle",
+			DesktopSpecialAction.ToggleNativePlaylist,
+			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
+				false, false, true));
 
 		AssertEqual("progress down starts local tracking",
 			ProgressPointerAction.BeginTracking,

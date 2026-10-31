@@ -9,7 +9,10 @@ internal enum DesktopSpecialAction
 	None,
 	ShowVolume,
 	ShowPlaybackModes,
-	ShowNativeComments
+	ShowNativeComments,
+	ClickLyricTranslation,
+	ClickAccompaniment,
+	ToggleNativePlaylist
 }
 
 internal enum ProgressPointerAction
@@ -206,11 +209,15 @@ internal static class DesktopInputPolicy
 	}
 
 	public static DesktopSpecialAction ResolveSpecialAction(bool isVolume,
-		bool isPlaybackMode, bool isComment)
+		bool isPlaybackMode, bool isComment, bool isLyricTranslation,
+		bool isAccompaniment, bool isPlaylist)
 	{
 		if (isVolume) return DesktopSpecialAction.ShowVolume;
 		if (isPlaybackMode) return DesktopSpecialAction.ShowPlaybackModes;
 		if (isComment) return DesktopSpecialAction.ShowNativeComments;
+		if (isLyricTranslation) return DesktopSpecialAction.ClickLyricTranslation;
+		if (isAccompaniment) return DesktopSpecialAction.ClickAccompaniment;
+		if (isPlaylist) return DesktopSpecialAction.ToggleNativePlaylist;
 		return DesktopSpecialAction.None;
 	}
 }

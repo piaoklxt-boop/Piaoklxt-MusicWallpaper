@@ -103,6 +103,8 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private const uint WmMouseHover = 673u;
 
+	private const uint WmClose = 16u;
+
 	private const int WhMouseLl = 14;
 
 	private const uint LvmFirst = 4096u;
@@ -233,6 +235,12 @@ internal sealed class WallpaperContext : ApplicationContext
 	private volatile Rectangle[] playbackModeControlAreas = new Rectangle[0];
 
 	private volatile Rectangle[] commentControlAreas = new Rectangle[0];
+
+	private volatile Rectangle[] lyricTranslationControlAreas = new Rectangle[0];
+
+	private volatile Rectangle[] accompanimentControlAreas = new Rectangle[0];
+
+	private volatile Rectangle[] playlistControlAreas = new Rectangle[0];
 
 	private volatile Rectangle[] progressControlAreas = new Rectangle[0];
 
@@ -1293,7 +1301,9 @@ internal sealed class WallpaperContext : ApplicationContext
 				return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 			}
 			switch (DesktopInputPolicy.ResolveSpecialAction(IsVolumePoint(point),
-				IsPlaybackModePoint(point), IsCommentPoint(point)))
+				IsPlaybackModePoint(point), IsCommentPoint(point),
+				IsLyricTranslationPoint(point), IsAccompanimentPoint(point),
+				IsPlaylistPoint(point)))
 			{
 			case DesktopSpecialAction.ShowVolume:
 				QueueShowVolume();
@@ -1303,6 +1313,15 @@ internal sealed class WallpaperContext : ApplicationContext
 				return new IntPtr(1);
 			case DesktopSpecialAction.ShowNativeComments:
 				QueueShowNativeComments(point, workingArea);
+				return new IntPtr(1);
+			case DesktopSpecialAction.ClickLyricTranslation:
+				QueueAtomicControlClick(point, workingArea, "Lyric translation");
+				return new IntPtr(1);
+			case DesktopSpecialAction.ClickAccompaniment:
+				QueueAtomicControlClick(point, workingArea, "Accompaniment");
+				return new IntPtr(1);
+			case DesktopSpecialAction.ToggleNativePlaylist:
+				QueueToggleNativePlaylist(point, workingArea);
 				return new IntPtr(1);
 			}
 			IntPtr fixedTarget = IsProgressPoint(point) ? qqWindow : IntPtr.Zero;
@@ -1364,6 +1383,21 @@ internal sealed class WallpaperContext : ApplicationContext
 		return areas.Length > 0 && areas[0].Contains(point);
 	}
 
+	private bool IsLyricTranslationPoint(Point point)
+	{
+		return DesktopInputPolicy.IsPointInAny(point, lyricTranslationControlAreas);
+	}
+
+	private bool IsAccompanimentPoint(Point point)
+	{
+		return DesktopInputPolicy.IsPointInAny(point, accompanimentControlAreas);
+	}
+
+	private bool IsPlaylistPoint(Point point)
+	{
+		return DesktopInputPolicy.IsPointInAny(point, playlistControlAreas);
+	}
+
 	private bool IsProgressPoint(Point point)
 	{
 		return DesktopInputPolicy.IsPointInAny(point, progressControlAreas);
@@ -1382,51 +1416,138 @@ internal sealed class WallpaperContext : ApplicationContext
 		return false;
 	}
 
-	private void QueueShowNativeComments(Point point, Rectangle work)
+	private void QueueAtomicControlClick(Point point, Rectangle work, string controlName)
 	{
 		try
 		{
 			window.BeginInvoke((Action)delegate
 			{
-				interactionActive = false;
-				progressSeekActive = false;
-				interactionTarget = IntPtr.Zero;
-				IntPtr existingComments = FindQQMusicCommentWindow();
-				if (existingComments != IntPtr.Zero &&
-					Native.IsWindowVisible(existingComments) &&
-					TryPositionCommentWindow(existingComments, work))
-				{
-					Log("Existing native comment window restored to the working area.");
-					return;
-				}
-				ForwardPointerToSource(point, work, WmLButtonDown, new IntPtr(1),
-					qqWindow);
-				ForwardPointerToSource(point, work, WmLButtonUp, IntPtr.Zero, qqWindow);
-				Log("Native comments opened by background control-bound click.");
-				QueuePresentCommentWindow(work);
+				ResetPointerInteraction();
+				AtomicControlClick(point, work);
+				nextAccessibilityRefresh = DateTime.MinValue;
+				Log(controlName + " clicked atomically through its MSAA bounds.");
 			});
 		}
 		catch { }
 	}
 
-	private void QueuePresentCommentWindow(Rectangle work)
+	private void QueueToggleNativePlaylist(Point point, Rectangle work)
+	{
+		ResetPointerInteraction();
+		ThreadPool.QueueUserWorkItem(delegate
+		{
+			IntPtr comments = FindQQMusicCommentWindow();
+			if (comments != IntPtr.Zero && Native.IsWindowVisible(comments))
+			{
+				Native.PostMessage(comments, WmClose, IntPtr.Zero, IntPtr.Zero);
+				if (!WaitForPopupToHide(comments, 300))
+					Native.ShowWindow(comments, 0);
+			}
+			AtomicControlClick(point, work);
+			nextAccessibilityRefresh = DateTime.MinValue;
+			Log("Native playlist toggled by an atomic control-bound click.");
+		});
+	}
+
+	private void QueueShowNativeComments(Point point, Rectangle work)
+	{
+		ResetPointerInteraction();
+		ThreadPool.QueueUserWorkItem(delegate
+		{
+			IntPtr playlist = FindQQMusicPopupWindow("播放队列", "Play queue");
+			if (playlist != IntPtr.Zero && Native.IsWindowVisible(playlist))
+			{
+				Rectangle[] playlistAreas = playlistControlAreas;
+				if (playlistAreas.Length > 0)
+				{
+					Rectangle control = playlistAreas[0];
+					AtomicControlClick(new Point(control.Left + control.Width / 2,
+						control.Top + control.Height / 2), work);
+				}
+				else
+				{
+					Native.PostMessage(playlist, WmClose, IntPtr.Zero, IntPtr.Zero);
+				}
+				if (!WaitForPopupToHide(playlist, 400))
+				{
+					Native.PostMessage(playlist, WmClose, IntPtr.Zero, IntPtr.Zero);
+					WaitForPopupToHide(playlist, 200);
+				}
+				Log("Native playlist closed before opening comments.");
+			}
+			OpenNativeComments(point, work);
+		});
+	}
+
+	private void OpenNativeComments(Point point, Rectangle work)
+	{
+		IntPtr existingComments = FindQQMusicCommentWindow();
+		if (existingComments != IntPtr.Zero &&
+			Native.IsWindowVisible(existingComments) &&
+			TryPositionCommentWindow(existingComments, work))
+		{
+			Log("Existing native comment window restored to the working area.");
+			return;
+		}
+		AtomicControlClick(point, work);
+		Log("Native comments opened by background control-bound click.");
+		QueuePresentCommentWindow(point, work);
+	}
+
+	private void QueuePresentCommentWindow(Point point, Rectangle work)
 	{
 		ThreadPool.QueueUserWorkItem(delegate
 		{
-			for (int attempt = 0; attempt < 20; attempt++)
-			{
-				IntPtr comments = FindQQMusicCommentWindow();
-				if (comments != IntPtr.Zero && Native.IsWindowVisible(comments) &&
-					TryPositionCommentWindow(comments, work))
-				{
-					Log("Native comment window positioned in the working area; hwnd=" +
-						comments.ToInt64());
-					return;
-				}
-				Thread.Sleep(50);
-			}
+			if (TryPresentCommentWindow(work, 12)) return;
+			// QQ keeps hidden popup state internally. A second atomic toggle repairs
+			// that state after a prior forced hide or playlist transition.
+			AtomicControlClick(point, work);
+			Log("Native comment state required one synchronized retry.");
+			if (TryPresentCommentWindow(work, 20)) return;
 			Log("Native comment window did not become visible after background click.");
 		});
+	}
+
+	private bool TryPresentCommentWindow(Rectangle work, int attempts)
+	{
+		for (int attempt = 0; attempt < attempts; attempt++)
+		{
+			IntPtr comments = FindQQMusicCommentWindow();
+			if (comments != IntPtr.Zero && Native.IsWindowVisible(comments) &&
+				TryPositionCommentWindow(comments, work))
+			{
+				Log("Native comment window positioned in the working area; hwnd=" +
+					comments.ToInt64());
+				return true;
+			}
+			Thread.Sleep(50);
+		}
+		return false;
+	}
+
+	private void AtomicControlClick(Point point, Rectangle work)
+	{
+		ForwardPointerToSource(point, work, WmLButtonDown, new IntPtr(1), qqWindow);
+		ForwardPointerToSource(point, work, WmLButtonUp, IntPtr.Zero, qqWindow);
+	}
+
+	private void ResetPointerInteraction()
+	{
+		interactionActive = false;
+		progressSeekActive = false;
+		interactionTarget = IntPtr.Zero;
+		interactionStarted = DateTime.MinValue;
+	}
+
+	private static bool WaitForPopupToHide(IntPtr popup, int milliseconds)
+	{
+		int attempts = Math.Max(1, milliseconds / 20);
+		for (int attempt = 0; attempt < attempts; attempt++)
+		{
+			if (!Native.IsWindow(popup) || !Native.IsWindowVisible(popup)) return true;
+			Thread.Sleep(20);
+		}
+		return !Native.IsWindow(popup) || !Native.IsWindowVisible(popup);
 	}
 
 	private bool TryPositionCommentWindow(IntPtr comments, Rectangle work)
@@ -1442,6 +1563,11 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private IntPtr FindQQMusicCommentWindow()
 	{
+		return FindQQMusicPopupWindow("评论", "Comments");
+	}
+
+	private IntPtr FindQQMusicPopupWindow(params string[] titles)
+	{
 		IntPtr result = IntPtr.Zero;
 		Native.GetWindowThreadProcessId(qqWindow, out var sourceProcessId);
 		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
@@ -1451,11 +1577,14 @@ internal sealed class WallpaperContext : ApplicationContext
 			if (processId != sourceProcessId) return true;
 			StringBuilder title = new StringBuilder(64);
 			Native.GetWindowText(candidate, title, title.Capacity);
-			if (string.Equals(title.ToString(), "评论", StringComparison.Ordinal) ||
-				string.Equals(title.ToString(), "Comments", StringComparison.OrdinalIgnoreCase))
+			string value = title.ToString();
+			for (int index = 0; index < titles.Length; index++)
 			{
-				result = candidate;
-				return false;
+				if (string.Equals(value, titles[index], StringComparison.OrdinalIgnoreCase))
+				{
+					result = candidate;
+					return false;
+				}
 			}
 			return true;
 		}, IntPtr.Zero);
@@ -1672,6 +1801,13 @@ internal sealed class WallpaperContext : ApplicationContext
 								visibleArea.Top - sourceRect.Top);
 							commentControlAreas = new[] { commentBounds };
 						}
+						lyricTranslationControlAreas = GetMappedControlAreas(source,
+							sourceRect, visibleArea, "翻译歌词", "Translation lyrics");
+						accompanimentControlAreas = GetMappedControlAreas(source,
+							sourceRect, visibleArea, "伴唱", "伴奏", "Accompaniment");
+						playlistControlAreas = GetMappedControlAreas(source,
+							sourceRect, visibleArea, "播放队列", "播放列表", "Play queue",
+							"Playlist");
 
 						List<MediaControlArea> mediaAreas = new List<MediaControlArea>();
 						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
@@ -1760,6 +1896,29 @@ internal sealed class WallpaperContext : ApplicationContext
 				Interlocked.Exchange(ref accessibilityRefreshRunning, 0);
 			}
 		});
+	}
+
+	private static Rectangle[] GetMappedControlAreas(IntPtr source,
+		Native.RECT sourceRect, Rectangle visibleArea, params string[] descriptions)
+	{
+		List<Rectangle> mappedAreas = new List<Rectangle>();
+		for (int descriptionIndex = 0; descriptionIndex < descriptions.Length;
+			descriptionIndex++)
+		{
+			Rectangle[] controls = QQMusicAccessibility.GetVisibleControlBounds(source,
+				descriptions[descriptionIndex], AllAccessibleSpace);
+			for (int controlIndex = 0; controlIndex < controls.Length; controlIndex++)
+			{
+				Rectangle mapped = controls[controlIndex];
+				mapped.Offset(visibleArea.Left - sourceRect.Left,
+					visibleArea.Top - sourceRect.Top);
+				mapped = Rectangle.Intersect(visibleArea, mapped);
+				if (mapped.Width <= 1 || mapped.Height <= 1 || mappedAreas.Contains(mapped))
+					continue;
+				mappedAreas.Add(mapped);
+			}
+		}
+		return mappedAreas.ToArray();
 	}
 
 	private static void AddMediaControlAreas(List<MediaControlArea> result,
