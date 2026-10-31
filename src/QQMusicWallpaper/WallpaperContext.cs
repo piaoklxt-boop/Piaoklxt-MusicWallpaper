@@ -676,6 +676,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		if (embedded)
 		{
 			WatchMouseHook();
+			PruneQQPopupSurfaces();
 			if (!interactionActive) RefreshInteractiveAreasIfDue();
 			if (Native.IsIconic(qqWindow))
 			{
@@ -1377,10 +1378,10 @@ internal sealed class WallpaperContext : ApplicationContext
 		case 522u:
 		{
 			short delta = (short)(mSLLHOOKSTRUCT.mouseData >> 16);
-			if (AccessibleSurfaceRouter.TryGetSurfaceAtPoint(point,
-				qqPopupControlSurfaces, out AccessibleControlSurface popupSurface))
+			if (AccessibleSurfaceRouter.TryGetWheelTarget(point,
+				qqPopupControlSurfaces, out IntPtr popupWindow))
 			{
-				ForwardWheelToWindow(popupSurface.Window, point, delta);
+				ForwardWheelToWindow(popupWindow, point, delta);
 				return new IntPtr(1);
 			}
 			if (IsVolumePoint(point))
@@ -1501,7 +1502,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				HashSet<IntPtr> visibleBefore = presentPopup
 					? GetVisibleQQTopLevelWindows() : null;
 				bool invoked = TryInvokeQQControl(descriptions);
-				nextAccessibilityRefresh = DateTime.MinValue;
+				if (!presentPopup) nextAccessibilityRefresh = DateTime.MinValue;
 				if (invoked && presentPopup)
 				{
 					activeTransientToggleDescriptions = descriptions;
@@ -1562,7 +1563,7 @@ internal sealed class WallpaperContext : ApplicationContext
 					activeTransientPopupPersistent = true;
 					QueuePresentNewQQPopup(visibleBefore, work, "More");
 				}
-				nextAccessibilityRefresh = DateTime.MinValue;
+				if (!presentsPopup) nextAccessibilityRefresh = DateTime.MinValue;
 				Log("MSAA point control invoked; applied=" + invoked);
 			});
 		}
@@ -1584,7 +1585,6 @@ internal sealed class WallpaperContext : ApplicationContext
 			HashSet<IntPtr> visibleBefore = GetVisibleQQTopLevelWindows();
 			bool invoked = TryInvokeQQControl("播放队列", "播放列表", "Play queue",
 				"Playlist");
-			nextAccessibilityRefresh = DateTime.MinValue;
 			if (invoked)
 			{
 				activeTransientToggleDescriptions = new[]
@@ -1707,6 +1707,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			X = screenPoint.X,
 			Y = screenPoint.Y
 		};
+		controlWindow = FindWindowInputTarget(controlWindow, clientPoint);
 		if (!Native.ScreenToClient(controlWindow, ref clientPoint)) return false;
 		IntPtr lParam = MakeLParam(clientPoint.X, clientPoint.Y);
 		uint[] messages = DesktopInputPolicy.GetControlActivationMessages();
@@ -1747,8 +1748,10 @@ internal sealed class WallpaperContext : ApplicationContext
 			rect.Right - rect.Left, rect.Bottom - rect.Top);
 		Rectangle target = DesktopInputPolicy.GetVisibleCommentBounds(current, work);
 		Native.ShowWindow(comments, SwShowNoActivate);
-		return Native.SetWindowPos(comments, new IntPtr(-1), target.Left, target.Top,
-			target.Width, target.Height, SwpShowWindow | SwpNoActivate);
+		bool positioned = Native.SetWindowPos(comments, new IntPtr(-1), target.Left,
+			target.Top, target.Width, target.Height, SwpShowWindow | SwpNoActivate);
+		if (positioned) PublishQQPopupSurface(comments, work);
+		return positioned;
 	}
 
 	private IntPtr FindQQMusicCommentWindow()
@@ -1786,6 +1789,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		IntPtr comments = FindQQMusicCommentWindow();
 		if (comments == IntPtr.Zero || !Native.IsWindowVisible(comments)) return;
 		Native.ShowWindow(comments, 0);
+		PruneQQPopupSurfaces();
 		Log("Native comment window dismissed by a blank desktop click.");
 	}
 
@@ -1914,8 +1918,11 @@ internal sealed class WallpaperContext : ApplicationContext
 		Rectangle bounds = Rectangle.Intersect(work, Rectangle.FromLTRB(
 			popupRect.Left, popupRect.Top, popupRect.Right, popupRect.Bottom));
 		if (bounds.Width < 2 || bounds.Height < 2) return;
+		// The top-level bounds are enough to give the popup ownership of pointer
+		// input. Reading the popup's complete MSAA tree here synchronously blocks
+		// QQ Music's Chromium UI thread and makes newly opened panels feel stuck.
 		AccessibleControlSurface surface = new AccessibleControlSurface(popup,
-			bounds, QQMusicAccessibility.CaptureSnapshot(popup));
+			bounds, new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]));
 		List<AccessibleControlSurface> updated =
 			new List<AccessibleControlSurface> { surface };
 		AccessibleControlSurface[] current = qqPopupControlSurfaces;
@@ -1926,37 +1933,28 @@ internal sealed class WallpaperContext : ApplicationContext
 			updated.Add(current[index]);
 		}
 		qqPopupControlSurfaces = updated.ToArray();
-		nextAccessibilityRefresh = DateTime.MinValue;
 	}
 
-	private AccessibleControlSurface[] CaptureVisibleQQPopupSurfaces(IntPtr source,
-		Rectangle visibleArea)
+	private void PruneQQPopupSurfaces()
 	{
-		List<IntPtr> windows = new List<IntPtr>();
-		Native.GetWindowThreadProcessId(source, out var sourceProcessId);
-		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
+		AccessibleControlSurface[] current = qqPopupControlSurfaces;
+		if (current.Length == 0) return;
+		List<AccessibleControlSurface> visible =
+			new List<AccessibleControlSurface>(current.Length);
+		for (int index = 0; index < current.Length; index++)
 		{
-			if (candidate == source || !Native.IsWindowVisible(candidate)) return true;
-			Native.GetWindowThreadProcessId(candidate, out var candidateProcessId);
-			if (candidateProcessId != sourceProcessId ||
-				!Native.GetWindowRect(candidate, out var rect)) return true;
-			Rectangle bounds = Rectangle.Intersect(visibleArea,
-				Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom));
-			if (bounds.Width >= 2 && bounds.Height >= 2) windows.Add(candidate);
-			return windows.Count < 12;
-		}, IntPtr.Zero);
-		List<AccessibleControlSurface> surfaces =
-			new List<AccessibleControlSurface>(windows.Count);
-		for (int index = 0; index < windows.Count; index++)
-		{
-			IntPtr popup = windows[index];
-			if (!Native.GetWindowRect(popup, out var rect)) continue;
-			Rectangle bounds = Rectangle.Intersect(visibleArea,
-				Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom));
-			surfaces.Add(new AccessibleControlSurface(popup, bounds,
-				QQMusicAccessibility.CaptureSnapshot(popup)));
+			AccessibleControlSurface surface = current[index];
+			if (Native.IsWindow(surface.Window) &&
+				Native.IsWindowVisible(surface.Window)) visible.Add(surface);
 		}
-		return surfaces.ToArray();
+		if (visible.Count == current.Length) return;
+		qqPopupControlSurfaces = visible.ToArray();
+		if (visible.Count == 0)
+		{
+			activeTransientToggleDescriptions = new string[0];
+			activeTransientPopupPersistent = false;
+			nextAccessibilityRefresh = DateTime.MinValue;
+		}
 	}
 
 	private void QueueSeekToSeconds(int seconds, Rectangle work)
@@ -2094,12 +2092,15 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void RefreshInteractiveAreasIfDue()
 	{
+		if (!DesktopInputPolicy.ShouldRefreshAccessibility(
+			qqPopupControlSurfaces.Length > 0)) return;
 		if (DateTime.UtcNow < nextAccessibilityRefresh ||
 			Interlocked.CompareExchange(ref accessibilityRefreshRunning, 1, 0) != 0)
 		{
 			return;
 		}
-		nextAccessibilityRefresh = DateTime.UtcNow.AddMilliseconds(interactionActive ? 350 : 1200);
+		nextAccessibilityRefresh = DateTime.UtcNow.AddMilliseconds(
+			DesktopInputPolicy.AccessibilityRefreshIntervalMilliseconds);
 		IntPtr source = qqWindow;
 		Rectangle visibleArea = Screen.PrimaryScreen.WorkingArea;
 		ThreadPool.QueueUserWorkItem(delegate
@@ -2108,15 +2109,6 @@ internal sealed class WallpaperContext : ApplicationContext
 			{
 				AccessibleTreeSnapshot snapshot =
 					QQMusicAccessibility.CaptureSnapshot(source);
-				AccessibleControlSurface[] previousPopupSurfaces =
-					qqPopupControlSurfaces;
-				AccessibleControlSurface[] popupSurfaces =
-					CaptureVisibleQQPopupSurfaces(source, visibleArea);
-				if (previousPopupSurfaces.Length > 0 && popupSurfaces.Length == 0)
-				{
-					activeTransientToggleDescriptions = new string[0];
-					activeTransientPopupPersistent = false;
-				}
 				Rectangle[] areas = snapshot.GetInteractiveBounds(AllAccessibleSpace,
 					includeHidden: true);
 				if (source == qqWindow)
@@ -2279,7 +2271,6 @@ internal sealed class WallpaperContext : ApplicationContext
 						lyricTimestampAreas = lyricAreas.ToArray();
 					}
 					qqAccessibilitySnapshot = snapshot;
-					qqPopupControlSurfaces = popupSurfaces;
 					qqInteractiveAreas = areas;
 				}
 			}
@@ -2468,18 +2459,23 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private IntPtr FindSourceInputTarget(Native.POINT sourcePoint)
 	{
-		IntPtr direct = Native.WindowFromPoint(sourcePoint);
-		if (direct != IntPtr.Zero &&
-			Native.GetAncestor(direct, 2u) == qqWindow) return direct;
+		return FindWindowInputTarget(qqWindow, sourcePoint);
+	}
+
+	private static IntPtr FindWindowInputTarget(IntPtr root, Native.POINT screenPoint)
+	{
+		IntPtr direct = Native.WindowFromPoint(screenPoint);
+		if (direct != IntPtr.Zero && (direct == root ||
+			Native.GetAncestor(direct, 2u) == root)) return direct;
 
 		IntPtr best = IntPtr.Zero;
 		int bestPriority = -1;
 		long bestArea = long.MaxValue;
-		Native.EnumChildWindows(qqWindow, delegate(IntPtr child, IntPtr data)
+		Native.EnumChildWindows(root, delegate(IntPtr child, IntPtr data)
 		{
 			if (!Native.GetWindowRect(child, out var rect) ||
-				sourcePoint.X < rect.Left || sourcePoint.X >= rect.Right ||
-				sourcePoint.Y < rect.Top || sourcePoint.Y >= rect.Bottom)
+				screenPoint.X < rect.Left || screenPoint.X >= rect.Right ||
+				screenPoint.Y < rect.Top || screenPoint.Y >= rect.Bottom)
 			{
 				return true;
 			}
@@ -2504,7 +2500,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			}
 			return true;
 		}, IntPtr.Zero);
-		return best;
+		return best != IntPtr.Zero ? best : root;
 	}
 
 	private void ForwardWheelToSource(Point screenPoint, Rectangle work, short delta)
@@ -2520,6 +2516,12 @@ internal sealed class WallpaperContext : ApplicationContext
 	private void ForwardWheelToWindow(IntPtr target, Point screenPoint, short delta)
 	{
 		if (!Native.IsWindow(target)) return;
+		Native.POINT nativePoint = new Native.POINT
+		{
+			X = screenPoint.X,
+			Y = screenPoint.Y
+		};
+		target = FindWindowInputTarget(target, nativePoint);
 		long value = (long)((ulong)(ushort)delta << 16);
 		Native.PostMessage(target, WmMouseWheel, new IntPtr(value),
 			MakeLParam(screenPoint.X, screenPoint.Y));

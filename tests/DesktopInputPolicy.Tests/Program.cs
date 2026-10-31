@@ -185,6 +185,20 @@ internal static class Program
 				out AccessibleNodeSnapshot popupTarget) &&
 				popupWindow == new IntPtr(2) && popupTarget.Name == "顺序播放");
 
+		AccessibleControlSurface commentSurface = new AccessibleControlSurface(
+			new IntPtr(3), new Rectangle(1430, 44, 478, 943),
+			new AccessibleTreeSnapshot(Array.Empty<AccessibleNodeSnapshot>()));
+		AssertTrue("a popup owns wheel input even when QQ exposes no child controls",
+			AccessibleSurfaceRouter.TryGetWheelTarget(new Point(1700, 600),
+				new[] { commentSurface }, out IntPtr wheelWindow) &&
+				wheelWindow == new IntPtr(3));
+		AssertFalse("main accessibility scans pause while a native popup is open",
+			DesktopInputPolicy.ShouldRefreshAccessibility(hasVisiblePopup: true));
+		AssertTrue("main accessibility scans continue after native popups close",
+			DesktopInputPolicy.ShouldRefreshAccessibility(hasVisiblePopup: false));
+		AssertTrue("idle accessibility scans leave QQ's UI thread breathing room",
+			DesktopInputPolicy.AccessibilityRefreshIntervalMilliseconds >= 3000);
+
 		if (failures != 0)
 		{
 			Console.Error.WriteLine($"Desktop input policy: {failures} failure(s).");

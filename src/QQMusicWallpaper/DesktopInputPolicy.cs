@@ -289,6 +289,16 @@ internal readonly struct AccessibleControlSurface
 
 internal static class AccessibleSurfaceRouter
 {
+	public static bool TryGetWheelTarget(Point point,
+		AccessibleControlSurface[] surfaces, out IntPtr window)
+	{
+		window = IntPtr.Zero;
+		if (!TryGetSurfaceAtPoint(point, surfaces,
+			out AccessibleControlSurface surface)) return false;
+		window = surface.Window;
+		return window != IntPtr.Zero;
+	}
+
 	public static bool TryGetControlTargetAtPoint(Point point,
 		AccessibleControlSurface[] surfaces, out IntPtr window,
 		out AccessibleNodeSnapshot target)
@@ -336,6 +346,12 @@ internal static class AccessibleSurfaceRouter
 internal static class DesktopInputPolicy
 {
 	public const int ControlActivationHoldMilliseconds = 80;
+	public const int AccessibilityRefreshIntervalMilliseconds = 5000;
+
+	public static bool ShouldRefreshAccessibility(bool hasVisiblePopup)
+	{
+		return !hasVisiblePopup;
+	}
 
 	public static uint[] GetControlActivationMessages()
 	{
