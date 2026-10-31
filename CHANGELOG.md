@@ -5,14 +5,14 @@
 ### Fixed
 
 - 缩小底部媒体键的坐标兜底范围，并优先使用 QQ 音乐暴露的播放、上一首和下一首控件边界，避免播放键覆盖进度条。
-- 从 QQ 音乐公开的当前/总时长控件推导进度轨道，并将按下、带左键的移动和松开完整发送到实际的 `qbcore_osr_wnd` 渲染子窗口，恢复原生拖动行为。
+- 从 QQ 音乐公开的当前/总时长控件推导进度轨道。拖动时让 Windows 正常移动真实光标并只记录目标位置，松手时向 QQ 音乐提交一次跳转，避免离屏控件吞掉或冻结光标。
 - 点击歌词时间标签可按对应时间跳转播放。
-- 点击评论时在后台按原生控件边界打开独立评论窗口，并将 QQ 音乐生成在屏幕外的评论窗移回工作区；主窗口继续留在桌面后方。
+- 点击评论时在后台按原生控件边界打开独立评论窗口，并将屏幕外的评论窗移回工作区；点击桌面空白处会收起评论窗，主窗口继续留在桌面后方。
 
 - Reduced the coordinate fallback for bottom media buttons and prefer QQ Music's accessible play, previous, and next bounds so play/pause no longer covers the progress bar.
-- Infer the timeline from QQ Music's exposed current/total-time controls and forward the complete down, held-move, and up sequence to the actual `qbcore_osr_wnd` rendering child, restoring native dragging.
+- Infer the timeline from QQ Music's exposed current/total-time controls. During a drag, let Windows move the real cursor while recording the target position, then submit exactly one QQ Music seek on release.
 - Seek playback by clicking an exposed lyric timestamp.
-- Open the separate native comment window through the exact exposed control bounds and move QQ Music's offscreen comment window back into the working area while the main player remains behind the desktop.
+- Open the separate native comment window through the exact exposed control bounds, restore it from offscreen, and dismiss it on a blank desktop click while the main player remains behind the desktop.
 
 ## 1.1.0 - 2026-10-20
 

@@ -216,6 +216,8 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool progressSeekActive;
 
+	private Point pendingProgressSeekPoint = Point.Empty;
+
 	private DateTime taskbarClickUntil = DateTime.MinValue;
 
 	private DateTime lastHoverForwarded = DateTime.MinValue;
@@ -1173,15 +1175,14 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			ProgressPointerAction progressAction =
 				DesktopInputPolicy.ResolveProgressPointerAction(num, true);
-			if (progressAction == ProgressPointerAction.ForwardHeldMove)
+			if (progressAction == ProgressPointerAction.UpdatePendingPosition)
 			{
-				ForwardProgressPointerToSource(point, workingArea, WmMouseMove,
-					new IntPtr(1), interactionTarget);
+				pendingProgressSeekPoint = point;
 			}
-			if (progressAction == ProgressPointerAction.ForwardButtonUp)
+			if (progressAction == ProgressPointerAction.CommitSeek)
 			{
-				ForwardProgressPointerToSource(point, workingArea, WmLButtonUp,
-					IntPtr.Zero, interactionTarget);
+				pendingProgressSeekPoint = point;
+				ForwardProgressClick(pendingProgressSeekPoint, workingArea);
 				progressSeekActive = false;
 				interactionActive = false;
 				interactionTarget = IntPtr.Zero;
@@ -1189,7 +1190,9 @@ internal sealed class WallpaperContext : ApplicationContext
 				nextAccessibilityRefresh = DateTime.MinValue;
 				Log("Progress scrub completed.");
 			}
-			return new IntPtr(1);
+			return DesktopInputPolicy.ShouldConsumeProgressPointerEvent(num)
+				? new IntPtr(1)
+				: Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 		}
 		if (interactionActive && (num == WmMouseMove || num == WmLButtonUp))
 		{
@@ -1273,21 +1276,20 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 		if (num == WmLButtonDown && IsProgressPoint(point))
 		{
-			interactionTarget = ForwardProgressPointerToSource(point, workingArea,
-				WmLButtonDown, new IntPtr(1), IntPtr.Zero);
-			if (interactionTarget != IntPtr.Zero)
-			{
-				progressSeekActive = true;
-				interactionActive = true;
-				interactionStarted = DateTime.UtcNow;
-				return new IntPtr(1);
-			}
+			pendingProgressSeekPoint = point;
+			progressSeekActive = true;
+			interactionActive = true;
+			interactionTarget = qqWindow;
+			interactionStarted = DateTime.UtcNow;
+			return new IntPtr(1);
 		}
 		switch (num)
 		{
 		case 513u:
 			if (!IsQQInteractionPoint(point, workingArea, includePlayerFallback: true))
 			{
+				if (DesktopInputPolicy.ShouldDismissComments(num, num2,
+					isDesktopIcon: false)) HideNativeCommentWindow();
 				return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 			}
 			switch (DesktopInputPolicy.ResolveSpecialAction(IsVolumePoint(point),
@@ -1458,6 +1460,14 @@ internal sealed class WallpaperContext : ApplicationContext
 			return true;
 		}, IntPtr.Zero);
 		return result;
+	}
+
+	private void HideNativeCommentWindow()
+	{
+		IntPtr comments = FindQQMusicCommentWindow();
+		if (comments == IntPtr.Zero || !Native.IsWindowVisible(comments)) return;
+		Native.ShowWindow(comments, 0);
+		Log("Native comment window dismissed by a blank desktop click.");
 	}
 
 	private void QueueSeekToSeconds(int seconds, Rectangle work)
@@ -1836,63 +1846,6 @@ internal sealed class WallpaperContext : ApplicationContext
 			timeline.Top + timeline.Height / 2);
 		ForwardPointerToSource(target, work, WmLButtonDown, new IntPtr(1), qqWindow);
 		ForwardPointerToSource(target, work, WmLButtonUp, IntPtr.Zero, qqWindow);
-	}
-
-	private IntPtr ForwardProgressPointerToSource(Point screenPoint, Rectangle work,
-		uint message, IntPtr keyState, IntPtr fixedTarget)
-	{
-		if (!TryMapToSource(screenPoint, work, out var unusedTarget,
-			out var sourcePoint)) return IntPtr.Zero;
-		IntPtr target = fixedTarget;
-		if (target == IntPtr.Zero || !Native.IsWindow(target))
-		{
-			target = FindRenderedBrowserTarget(screenPoint);
-			if (target == IntPtr.Zero) target = qqWindow;
-		}
-		Native.POINT targetPoint = target == qqWindow
-			? sourcePoint
-			: new Native.POINT { X = screenPoint.X, Y = screenPoint.Y };
-		Native.ScreenToClient(target, ref targetPoint);
-		Native.PostMessage(target, message, keyState,
-			MakeLParam(targetPoint.X, targetPoint.Y));
-		if (message == WmLButtonDown)
-		{
-			StringBuilder className = new StringBuilder(96);
-			Native.GetClassName(target, className, className.Capacity);
-			Log("Progress drag target: " + className + "; hwnd=" +
-				target.ToInt64());
-		}
-		return target;
-	}
-
-	private IntPtr FindRenderedBrowserTarget(Point renderedPoint)
-	{
-		IntPtr best = IntPtr.Zero;
-		long bestArea = long.MaxValue;
-		Native.EnumChildWindows(qqWindow, delegate(IntPtr child, IntPtr data)
-		{
-			if (!Native.GetWindowRect(child, out var rect) ||
-				renderedPoint.X < rect.Left || renderedPoint.X >= rect.Right ||
-				renderedPoint.Y < rect.Top || renderedPoint.Y >= rect.Bottom)
-			{
-				return true;
-			}
-			StringBuilder name = new StringBuilder(96);
-			Native.GetClassName(child, name, name.Capacity);
-			string windowClass = name.ToString();
-			if (windowClass.IndexOf("qbcore_osr_wnd",
-				StringComparison.OrdinalIgnoreCase) < 0 &&
-				windowClass.IndexOf("Chrome_RenderWidget",
-					StringComparison.OrdinalIgnoreCase) < 0) return true;
-			long area = (long)(rect.Right - rect.Left) * (rect.Bottom - rect.Top);
-			if (area > 0 && area < bestArea)
-			{
-				best = child;
-				bestArea = area;
-			}
-			return true;
-		}, IntPtr.Zero);
-		return best;
 	}
 
 	private Rectangle[] GetQQAccessoryAreas(IntPtr source, Native.RECT sourceRect,

@@ -10,7 +10,7 @@ Turn the current QQ Music window into an interactive Windows desktop wallpaper. 
 
 - Live QQ Music rendering behind normal desktop icons, without keeping the QQ Music window in the foreground.
 - Working desktop playback, click-and-drag progress seeking, lyric-timestamp seeking, volume, playback-order and lyric-wheel controls.
-- The comment button opens QQ Music's separate native comment window while the main player remains behind the desktop.
+- The comment button opens QQ Music's separate native comment window; a blank desktop click dismisses it while the main player remains behind the desktop.
 - Automatic Windows accent, taskbar, supported app chrome and File Explorer color synchronization.
 - A portable x64 package: extract, run, and let the app find or open QQ Music.
 - Automatic color restoration on wallpaper shutdown or application exit.
@@ -59,7 +59,7 @@ Settings and logs are stored in `%LOCALAPPDATA%\Piaoklxt-MusicWallpaper`, so the
 - Windows 10 version 1903 or later: experimental.
 - QQ Music for Windows: required and installed separately.
 
-The main QQ Music window is mirrored. The bottom progress bar sends a complete down, held-move, and up sequence to QQ Music's actual rendering child; exposed lyric timestamps seek playback directly, and lyric scrolling continues to work. Because QQ Music renders comments as a separate native top-level window, the comment action opens and restores only that window while the main player stays behind the desktop.
+The main QQ Music window is mirrored. Dragging the bottom progress bar keeps the real Windows cursor moving and submits one mapped seek to QQ Music on release; exposed lyric timestamps seek playback directly, and lyric scrolling continues to work. Because QQ Music renders comments as a separate native top-level window, the comment action opens and restores only that window, and a blank desktop click dismisses it while the main player stays behind the desktop.
 
 On Windows 11, the portable package includes an optional minimal Explorer styling runtime. It colors the File Explorer top area with the synchronized accent color and does not require a separate Windhawk installation. If an existing Windhawk instance is already running, the bundled runtime stays inactive to avoid conflicts.
 

@@ -32,15 +32,25 @@ internal static class Program
 			DesktopSpecialAction.ShowNativeComments,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, true));
 
-		AssertEqual("progress down is forwarded to QQ Music",
-			ProgressPointerAction.ForwardButtonDown,
+		AssertEqual("progress down starts local tracking",
+			ProgressPointerAction.BeginTracking,
 			DesktopInputPolicy.ResolveProgressPointerAction(513u, false));
-		AssertEqual("progress held move is forwarded to QQ Music",
-			ProgressPointerAction.ForwardHeldMove,
+		AssertEqual("progress held move updates the pending point",
+			ProgressPointerAction.UpdatePendingPosition,
 			DesktopInputPolicy.ResolveProgressPointerAction(512u, true));
-		AssertEqual("progress up is forwarded to QQ Music",
-			ProgressPointerAction.ForwardButtonUp,
+		AssertEqual("progress up commits one seek",
+			ProgressPointerAction.CommitSeek,
 			DesktopInputPolicy.ResolveProgressPointerAction(514u, true));
+		AssertFalse("progress move remains available to the system cursor",
+			DesktopInputPolicy.ShouldConsumeProgressPointerEvent(512u));
+		AssertTrue("progress down stays away from Explorer",
+			DesktopInputPolicy.ShouldConsumeProgressPointerEvent(513u));
+		AssertTrue("progress up stays away from Explorer",
+			DesktopInputPolicy.ShouldConsumeProgressPointerEvent(514u));
+		AssertTrue("blank desktop click dismisses comments",
+			DesktopInputPolicy.ShouldDismissComments(513u, true, false));
+		AssertFalse("desktop icon click does not dismiss comments",
+			DesktopInputPolicy.ShouldDismissComments(513u, true, true));
 
 		Rectangle commentWindow = new Rectangle(-490, 12, 478, 943);
 		Rectangle commentWork = new Rectangle(0, 0, 1920, 1032);

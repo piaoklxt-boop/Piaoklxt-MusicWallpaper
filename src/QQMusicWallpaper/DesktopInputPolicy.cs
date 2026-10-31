@@ -15,9 +15,9 @@ internal enum DesktopSpecialAction
 internal enum ProgressPointerAction
 {
 	None,
-	ForwardButtonDown,
-	ForwardHeldMove,
-	ForwardButtonUp
+	BeginTracking,
+	UpdatePendingPosition,
+	CommitSeek
 }
 
 internal readonly struct MediaControlArea
@@ -51,12 +51,23 @@ internal static class DesktopInputPolicy
 	public static ProgressPointerAction ResolveProgressPointerAction(uint message,
 		bool progressInteractionActive)
 	{
-		if (message == 513u) return ProgressPointerAction.ForwardButtonDown;
+		if (message == 513u) return ProgressPointerAction.BeginTracking;
 		if (progressInteractionActive && message == 512u)
-			return ProgressPointerAction.ForwardHeldMove;
+			return ProgressPointerAction.UpdatePendingPosition;
 		if (progressInteractionActive && message == 514u)
-			return ProgressPointerAction.ForwardButtonUp;
+			return ProgressPointerAction.CommitSeek;
 		return ProgressPointerAction.None;
+	}
+
+	public static bool ShouldConsumeProgressPointerEvent(uint message)
+	{
+		return message != 512u;
+	}
+
+	public static bool ShouldDismissComments(uint message, bool isDesktopSurface,
+		bool isDesktopIcon)
+	{
+		return message == 513u && isDesktopSurface && !isDesktopIcon;
 	}
 
 	public static bool TryParseTimestamp(string text, out int seconds)
