@@ -15,9 +15,9 @@ internal enum DesktopSpecialAction
 internal enum ProgressPointerAction
 {
 	None,
-	BeginTracking,
-	UpdatePendingPosition,
-	CommitSeek
+	ForwardButtonDown,
+	ForwardHeldMove,
+	ForwardButtonUp
 }
 
 internal readonly struct MediaControlArea
@@ -51,11 +51,11 @@ internal static class DesktopInputPolicy
 	public static ProgressPointerAction ResolveProgressPointerAction(uint message,
 		bool progressInteractionActive)
 	{
-		if (message == 513u) return ProgressPointerAction.BeginTracking;
+		if (message == 513u) return ProgressPointerAction.ForwardButtonDown;
 		if (progressInteractionActive && message == 512u)
-			return ProgressPointerAction.UpdatePendingPosition;
+			return ProgressPointerAction.ForwardHeldMove;
 		if (progressInteractionActive && message == 514u)
-			return ProgressPointerAction.CommitSeek;
+			return ProgressPointerAction.ForwardButtonUp;
 		return ProgressPointerAction.None;
 	}
 
@@ -118,6 +118,18 @@ internal static class DesktopInputPolicy
 		bool foregroundIsQQMusic)
 	{
 		return sourcePresented && foregroundIsQQMusic;
+	}
+
+	public static Rectangle GetVisibleCommentBounds(Rectangle commentWindow,
+		Rectangle workingArea)
+	{
+		const int margin = 12;
+		int width = Math.Min(Math.Max(1, commentWindow.Width),
+			Math.Max(1, workingArea.Width - margin * 2));
+		int height = Math.Min(Math.Max(1, commentWindow.Height),
+			Math.Max(1, workingArea.Height - margin * 2));
+		return new Rectangle(workingArea.Right - width - margin,
+			workingArea.Top + (workingArea.Height - height) / 2, width, height);
 	}
 
 	public static bool IsPlayerFallbackPoint(Point point, Rectangle work)

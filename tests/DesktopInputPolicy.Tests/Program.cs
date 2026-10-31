@@ -32,15 +32,21 @@ internal static class Program
 			DesktopSpecialAction.ShowNativeComments,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, true));
 
-		AssertEqual("progress down only starts tracking",
-			ProgressPointerAction.BeginTracking,
+		AssertEqual("progress down is forwarded to QQ Music",
+			ProgressPointerAction.ForwardButtonDown,
 			DesktopInputPolicy.ResolveProgressPointerAction(513u, false));
-		AssertEqual("progress move only updates the pending position",
-			ProgressPointerAction.UpdatePendingPosition,
+		AssertEqual("progress held move is forwarded to QQ Music",
+			ProgressPointerAction.ForwardHeldMove,
 			DesktopInputPolicy.ResolveProgressPointerAction(512u, true));
-		AssertEqual("progress up commits one seek",
-			ProgressPointerAction.CommitSeek,
+		AssertEqual("progress up is forwarded to QQ Music",
+			ProgressPointerAction.ForwardButtonUp,
 			DesktopInputPolicy.ResolveProgressPointerAction(514u, true));
+
+		Rectangle commentWindow = new Rectangle(-490, 12, 478, 943);
+		Rectangle commentWork = new Rectangle(0, 0, 1920, 1032);
+		AssertEqual("comment window is restored inside the working area",
+			new Rectangle(1430, 44, 478, 943),
+			DesktopInputPolicy.GetVisibleCommentBounds(commentWindow, commentWork));
 
 		AssertTrue("lyric timestamp is parsed",
 			DesktopInputPolicy.TryParseTimestamp(" 03:32 ", out int lyricSeconds) &&

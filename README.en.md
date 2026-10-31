@@ -59,7 +59,7 @@ Settings and logs are stored in `%LOCALAPPDATA%\Piaoklxt-MusicWallpaper`, so the
 - Windows 10 version 1903 or later: experimental.
 - QQ Music for Windows: required and installed separately.
 
-The main QQ Music window is mirrored. Pressing and dragging the bottom progress bar only updates a pending position, and releasing performs the seek; exposed lyric timestamps seek playback directly, and lyric scrolling continues to work. Because QQ Music renders comments as a separate native top-level window, the comment action opens only that window while the main player stays behind the desktop.
+The main QQ Music window is mirrored. The bottom progress bar sends a complete down, held-move, and up sequence to QQ Music's actual rendering child; exposed lyric timestamps seek playback directly, and lyric scrolling continues to work. Because QQ Music renders comments as a separate native top-level window, the comment action opens and restores only that window while the main player stays behind the desktop.
 
 On Windows 11, the portable package includes an optional minimal Explorer styling runtime. It colors the File Explorer top area with the synchronized accent color and does not require a separate Windhawk installation. If an existing Windhawk instance is already running, the bundled runtime stays inactive to avoid conflicts.
 

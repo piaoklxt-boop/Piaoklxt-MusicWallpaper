@@ -216,8 +216,6 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool progressSeekActive;
 
-	private Point pendingProgressSeekPoint = Point.Empty;
-
 	private DateTime taskbarClickUntil = DateTime.MinValue;
 
 	private DateTime lastHoverForwarded = DateTime.MinValue;
@@ -1175,14 +1173,15 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			ProgressPointerAction progressAction =
 				DesktopInputPolicy.ResolveProgressPointerAction(num, true);
-			if (progressAction == ProgressPointerAction.UpdatePendingPosition)
+			if (progressAction == ProgressPointerAction.ForwardHeldMove)
 			{
-				pendingProgressSeekPoint = point;
+				ForwardProgressPointerToSource(point, workingArea, WmMouseMove,
+					new IntPtr(1), interactionTarget);
 			}
-			if (progressAction == ProgressPointerAction.CommitSeek)
+			if (progressAction == ProgressPointerAction.ForwardButtonUp)
 			{
-				pendingProgressSeekPoint = point;
-				ForwardProgressClick(pendingProgressSeekPoint, workingArea);
+				ForwardProgressPointerToSource(point, workingArea, WmLButtonUp,
+					IntPtr.Zero, interactionTarget);
 				progressSeekActive = false;
 				interactionActive = false;
 				interactionTarget = IntPtr.Zero;
@@ -1274,12 +1273,15 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 		if (num == WmLButtonDown && IsProgressPoint(point))
 		{
-			pendingProgressSeekPoint = point;
-			progressSeekActive = true;
-			interactionActive = true;
-			interactionTarget = qqWindow;
-			interactionStarted = DateTime.UtcNow;
-			return new IntPtr(1);
+			interactionTarget = ForwardProgressPointerToSource(point, workingArea,
+				WmLButtonDown, new IntPtr(1), IntPtr.Zero);
+			if (interactionTarget != IntPtr.Zero)
+			{
+				progressSeekActive = true;
+				interactionActive = true;
+				interactionStarted = DateTime.UtcNow;
+				return new IntPtr(1);
+			}
 		}
 		switch (num)
 		{
@@ -1387,13 +1389,75 @@ internal sealed class WallpaperContext : ApplicationContext
 				interactionActive = false;
 				progressSeekActive = false;
 				interactionTarget = IntPtr.Zero;
+				IntPtr existingComments = FindQQMusicCommentWindow();
+				if (existingComments != IntPtr.Zero &&
+					Native.IsWindowVisible(existingComments) &&
+					TryPositionCommentWindow(existingComments, work))
+				{
+					Log("Existing native comment window restored to the working area.");
+					return;
+				}
 				ForwardPointerToSource(point, work, WmLButtonDown, new IntPtr(1),
 					qqWindow);
 				ForwardPointerToSource(point, work, WmLButtonUp, IntPtr.Zero, qqWindow);
 				Log("Native comments opened by background control-bound click.");
+				QueuePresentCommentWindow(work);
 			});
 		}
 		catch { }
+	}
+
+	private void QueuePresentCommentWindow(Rectangle work)
+	{
+		ThreadPool.QueueUserWorkItem(delegate
+		{
+			for (int attempt = 0; attempt < 20; attempt++)
+			{
+				IntPtr comments = FindQQMusicCommentWindow();
+				if (comments != IntPtr.Zero && Native.IsWindowVisible(comments) &&
+					TryPositionCommentWindow(comments, work))
+				{
+					Log("Native comment window positioned in the working area; hwnd=" +
+						comments.ToInt64());
+					return;
+				}
+				Thread.Sleep(50);
+			}
+			Log("Native comment window did not become visible after background click.");
+		});
+	}
+
+	private bool TryPositionCommentWindow(IntPtr comments, Rectangle work)
+	{
+		if (!Native.GetWindowRect(comments, out var rect)) return false;
+		Rectangle current = new Rectangle(rect.Left, rect.Top,
+			rect.Right - rect.Left, rect.Bottom - rect.Top);
+		Rectangle target = DesktopInputPolicy.GetVisibleCommentBounds(current, work);
+		Native.ShowWindow(comments, SwShowNoActivate);
+		return Native.SetWindowPos(comments, IntPtr.Zero, target.Left, target.Top,
+			target.Width, target.Height, SwpShowWindow | SwpNoActivate);
+	}
+
+	private IntPtr FindQQMusicCommentWindow()
+	{
+		IntPtr result = IntPtr.Zero;
+		Native.GetWindowThreadProcessId(qqWindow, out var sourceProcessId);
+		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
+		{
+			if (candidate == qqWindow) return true;
+			Native.GetWindowThreadProcessId(candidate, out var processId);
+			if (processId != sourceProcessId) return true;
+			StringBuilder title = new StringBuilder(64);
+			Native.GetWindowText(candidate, title, title.Capacity);
+			if (string.Equals(title.ToString(), "评论", StringComparison.Ordinal) ||
+				string.Equals(title.ToString(), "Comments", StringComparison.OrdinalIgnoreCase))
+			{
+				result = candidate;
+				return false;
+			}
+			return true;
+		}, IntPtr.Zero);
+		return result;
 	}
 
 	private void QueueSeekToSeconds(int seconds, Rectangle work)
@@ -1772,6 +1836,63 @@ internal sealed class WallpaperContext : ApplicationContext
 			timeline.Top + timeline.Height / 2);
 		ForwardPointerToSource(target, work, WmLButtonDown, new IntPtr(1), qqWindow);
 		ForwardPointerToSource(target, work, WmLButtonUp, IntPtr.Zero, qqWindow);
+	}
+
+	private IntPtr ForwardProgressPointerToSource(Point screenPoint, Rectangle work,
+		uint message, IntPtr keyState, IntPtr fixedTarget)
+	{
+		if (!TryMapToSource(screenPoint, work, out var unusedTarget,
+			out var sourcePoint)) return IntPtr.Zero;
+		IntPtr target = fixedTarget;
+		if (target == IntPtr.Zero || !Native.IsWindow(target))
+		{
+			target = FindRenderedBrowserTarget(screenPoint);
+			if (target == IntPtr.Zero) target = qqWindow;
+		}
+		Native.POINT targetPoint = target == qqWindow
+			? sourcePoint
+			: new Native.POINT { X = screenPoint.X, Y = screenPoint.Y };
+		Native.ScreenToClient(target, ref targetPoint);
+		Native.PostMessage(target, message, keyState,
+			MakeLParam(targetPoint.X, targetPoint.Y));
+		if (message == WmLButtonDown)
+		{
+			StringBuilder className = new StringBuilder(96);
+			Native.GetClassName(target, className, className.Capacity);
+			Log("Progress drag target: " + className + "; hwnd=" +
+				target.ToInt64());
+		}
+		return target;
+	}
+
+	private IntPtr FindRenderedBrowserTarget(Point renderedPoint)
+	{
+		IntPtr best = IntPtr.Zero;
+		long bestArea = long.MaxValue;
+		Native.EnumChildWindows(qqWindow, delegate(IntPtr child, IntPtr data)
+		{
+			if (!Native.GetWindowRect(child, out var rect) ||
+				renderedPoint.X < rect.Left || renderedPoint.X >= rect.Right ||
+				renderedPoint.Y < rect.Top || renderedPoint.Y >= rect.Bottom)
+			{
+				return true;
+			}
+			StringBuilder name = new StringBuilder(96);
+			Native.GetClassName(child, name, name.Capacity);
+			string windowClass = name.ToString();
+			if (windowClass.IndexOf("qbcore_osr_wnd",
+				StringComparison.OrdinalIgnoreCase) < 0 &&
+				windowClass.IndexOf("Chrome_RenderWidget",
+					StringComparison.OrdinalIgnoreCase) < 0) return true;
+			long area = (long)(rect.Right - rect.Left) * (rect.Bottom - rect.Top);
+			if (area > 0 && area < bestArea)
+			{
+				best = child;
+				bestArea = area;
+			}
+			return true;
+		}, IntPtr.Zero);
+		return best;
 	}
 
 	private Rectangle[] GetQQAccessoryAreas(IntPtr source, Native.RECT sourceRect,
