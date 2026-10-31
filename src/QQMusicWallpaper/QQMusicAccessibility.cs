@@ -6,6 +6,19 @@ using Accessibility;
 
 namespace QQMusicWallpaper;
 
+internal readonly struct AccessibleTimeLabel
+{
+	public AccessibleTimeLabel(Rectangle bounds, int seconds)
+	{
+		Bounds = bounds;
+		Seconds = seconds;
+	}
+
+	public Rectangle Bounds { get; }
+
+	public int Seconds { get; }
+}
+
 internal static class QQMusicAccessibility
 {
 	private const uint ObjIdClient = 4294967292u;
@@ -57,28 +70,6 @@ internal static class QQMusicAccessibility
 		}
 	}
 
-	public static bool TryInvokeVisibleControl(IntPtr window, string description,
-		Rectangle visibleArea)
-	{
-		object accessibleObject = null;
-		Guid interfaceId = typeof(IAccessible).GUID;
-		try
-		{
-			if (AccessibleObjectFromWindow(window, ObjIdClient, ref interfaceId,
-				ref accessibleObject) != 0 || !(accessibleObject is IAccessible accessible))
-			{
-				return false;
-			}
-			int visited = 0;
-			return TryInvokeVisibleControl(accessible, description, visibleArea, 0,
-				ref visited);
-		}
-		catch
-		{
-			return false;
-		}
-	}
-
 	public static Rectangle[] GetVisibleControlBounds(IntPtr window,
 		string description, Rectangle visibleArea)
 	{
@@ -121,9 +112,10 @@ internal static class QQMusicAccessibility
 		return bounds.ToArray();
 	}
 
-	public static Rectangle[] GetVisibleSliderBounds(IntPtr window, Rectangle visibleArea)
+	public static AccessibleTimeLabel[] GetVisibleTimeLabels(IntPtr window,
+		Rectangle visibleArea)
 	{
-		List<Rectangle> bounds = new List<Rectangle>();
+		List<AccessibleTimeLabel> labels = new List<AccessibleTimeLabel>();
 		object accessibleObject = null;
 		Guid interfaceId = typeof(IAccessible).GUID;
 		try
@@ -131,17 +123,17 @@ internal static class QQMusicAccessibility
 			if (AccessibleObjectFromWindow(window, ObjIdClient, ref interfaceId,
 				ref accessibleObject) != 0 || !(accessibleObject is IAccessible accessible))
 			{
-				return bounds.ToArray();
+				return labels.ToArray();
 			}
 			int visited = 0;
-			CollectRoleBounds(accessible, 51, visibleArea, 0, ref visited, bounds);
+			CollectTimeLabels(accessible, visibleArea, 0, ref visited, labels);
 		}
 		catch { }
-		return bounds.ToArray();
+		return labels.ToArray();
 	}
 
-	private static void CollectRoleBounds(IAccessible accessible, int expectedRole,
-		Rectangle visibleArea, int depth, ref int visited, List<Rectangle> bounds)
+	private static void CollectTimeLabels(IAccessible accessible, Rectangle visibleArea,
+		int depth, ref int visited, List<AccessibleTimeLabel> labels)
 	{
 		if (depth > MaxDepth || visited++ > MaxNodes) return;
 		int childCount;
@@ -155,22 +147,30 @@ internal static class QQMusicAccessibility
 			IAccessible node = child ?? accessible;
 			object childId = child == null ? (object)index : 0;
 			if (IsHidden(node, childId)) continue;
-			try
+			string text = "";
+			try { text = node.get_accName(childId) ?? ""; }
+			catch { }
+			if (string.IsNullOrWhiteSpace(text))
 			{
-				if (Convert.ToInt32(node.get_accRole(childId)) == expectedRole)
+				try { text = node.get_accDescription(childId) ?? ""; }
+				catch { }
+			}
+			if (DesktopInputPolicy.TryParseTimestamp(text, out int seconds))
+			{
+				try
 				{
 					node.accLocation(out int left, out int top, out int width,
 						out int height, childId);
-					Rectangle item = Rectangle.Intersect(visibleArea,
+					Rectangle bounds = Rectangle.Intersect(visibleArea,
 						new Rectangle(left, top, width, height));
-					if (item.Width > 1 && item.Height > 0) bounds.Add(item);
+					if (bounds.Width > 0 && bounds.Height > 0)
+						labels.Add(new AccessibleTimeLabel(bounds, seconds));
 				}
+				catch { }
 			}
-			catch { }
 			if (child != null)
 			{
-				CollectRoleBounds(child, expectedRole, visibleArea, depth + 1,
-					ref visited, bounds);
+				CollectTimeLabels(child, visibleArea, depth + 1, ref visited, labels);
 			}
 		}
 	}
@@ -323,45 +323,6 @@ internal static class QQMusicAccessibility
 					depth + 1, ref visited, bounds);
 			}
 		}
-	}
-
-	private static bool TryInvokeVisibleControl(IAccessible accessible,
-		string description, Rectangle visibleArea, int depth, ref int visited)
-	{
-		if (depth > MaxDepth || visited++ > MaxNodes) return false;
-		int childCount;
-		try { childCount = accessible.accChildCount; }
-		catch { return false; }
-		for (int index = 1; index <= childCount; index++)
-		{
-			IAccessible child = null;
-			try { child = accessible.get_accChild(index) as IAccessible; }
-			catch { }
-			IAccessible node = child ?? accessible;
-			object childId = child == null ? (object)index : 0;
-			if (IsHidden(node, childId)) continue;
-			try
-			{
-				string name = node.get_accName(childId);
-				string itemDescription = node.get_accDescription(childId);
-				if (string.Equals(name, description, StringComparison.Ordinal) ||
-					string.Equals(itemDescription, description, StringComparison.Ordinal))
-				{
-					node.accLocation(out int left, out int top, out int width,
-						out int height, childId);
-					if (width > 0 && height > 0 &&
-						visibleArea.Contains(left + width / 2, top + height / 2))
-					{
-						node.accDoDefaultAction(childId);
-						return true;
-					}
-				}
-			}
-			catch { }
-			if (child != null && TryInvokeVisibleControl(child, description,
-				visibleArea, depth + 1, ref visited)) return true;
-		}
-		return false;
 	}
 
 	private static bool IsHidden(IAccessible accessible, object childId)

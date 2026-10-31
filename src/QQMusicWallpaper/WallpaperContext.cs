@@ -85,6 +85,8 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private const uint SwpShowWindow = 64u;
 
+	private const uint SwpNoActivate = 16u;
+
 	private const uint WmLButtonDown = 513u;
 
 	private const uint WmLButtonUp = 514u;
@@ -212,11 +214,21 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private DateTime interactionStarted = DateTime.MinValue;
 
+	private bool progressSeekActive;
+
+	private DateTime lastProgressSeekForwarded = DateTime.MinValue;
+
+	private Point lastProgressSeekPoint = Point.Empty;
+
 	private DateTime taskbarClickUntil = DateTime.MinValue;
 
 	private DateTime lastHoverForwarded = DateTime.MinValue;
 
+	private DateTime lastLyricControlRefresh = DateTime.MinValue;
+
 	private bool sourcePresented;
+
+	private DateTime nativePresentationGraceUntil = DateTime.MinValue;
 
 	private volatile Rectangle[] qqInteractiveAreas = new Rectangle[0];
 
@@ -227,6 +239,11 @@ internal sealed class WallpaperContext : ApplicationContext
 	private volatile Rectangle[] commentControlAreas = new Rectangle[0];
 
 	private volatile Rectangle[] progressControlAreas = new Rectangle[0];
+
+	private volatile TimestampControlArea[] lyricTimestampAreas =
+		new TimestampControlArea[0];
+
+	private volatile int playbackTotalSeconds;
 
 	private volatile MediaControlArea[] mediaControlAreas = new MediaControlArea[0];
 
@@ -642,6 +659,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				Log("Interaction watchdog moved the QQ Music source offscreen.");
 				KeepSourceMaximizedBehindDesktop();
 				interactionActive = false;
+				progressSeekActive = false;
 				interactionStarted = DateTime.MinValue;
 			}
 			if (interactionActive)
@@ -649,9 +667,16 @@ internal sealed class WallpaperContext : ApplicationContext
 				return;
 			}
 			IntPtr foregroundWindow = Native.GetForegroundWindow();
-			if (!sourcePresented || !IsQQMusicWindow(foregroundWindow))
+			DateTime now = DateTime.UtcNow;
+			bool foregroundIsQQMusic = IsQQMusicWindow(foregroundWindow);
+			if (DesktopInputPolicy.ShouldKeepNativeSurfacePresented(sourcePresented,
+				foregroundIsQQMusic, now, nativePresentationGraceUntil))
 			{
-				if (foregroundWindow == qqWindow && DateTime.UtcNow <= taskbarClickUntil)
+				return;
+			}
+			if (!sourcePresented || !foregroundIsQQMusic)
+			{
+				if (foregroundWindow == qqWindow && now <= taskbarClickUntil)
 				{
 					PresentSourceWindow();
 				}
@@ -1146,8 +1171,30 @@ internal sealed class WallpaperContext : ApplicationContext
 		if (interactionActive && num == WmRButtonDown)
 		{
 			interactionActive = false;
+			progressSeekActive = false;
 			interactionStarted = DateTime.MinValue;
 			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+		}
+		if (progressSeekActive && (num == WmMouseMove || num == WmLButtonUp))
+		{
+			ProgressPointerAction progressAction =
+				DesktopInputPolicy.ResolveProgressPointerAction(num, true);
+			if (progressAction == ProgressPointerAction.Click ||
+				progressAction == ProgressPointerAction.ClickAndEnd)
+			{
+				ForwardProgressClick(point, workingArea,
+					progressAction == ProgressPointerAction.ClickAndEnd);
+			}
+			if (progressAction == ProgressPointerAction.ClickAndEnd)
+			{
+				progressSeekActive = false;
+				interactionActive = false;
+				interactionTarget = IntPtr.Zero;
+				interactionStarted = DateTime.MinValue;
+				nextAccessibilityRefresh = DateTime.MinValue;
+				Log("Progress scrub completed.");
+			}
+			return new IntPtr(1);
 		}
 		if (interactionActive && (num == WmMouseMove || num == WmLButtonUp))
 		{
@@ -1224,6 +1271,20 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			return new IntPtr(1);
 		}
+		if (num == WmLButtonDown && TryGetLyricTimestamp(point, out int lyricSeconds))
+		{
+			QueueSeekToSeconds(lyricSeconds, workingArea);
+			return new IntPtr(1);
+		}
+		if (num == WmLButtonDown && IsProgressPoint(point))
+		{
+			ForwardProgressClick(point, workingArea, force: true);
+			progressSeekActive = true;
+			interactionActive = true;
+			interactionTarget = qqWindow;
+			interactionStarted = DateTime.UtcNow;
+			return new IntPtr(1);
+		}
 		switch (num)
 		{
 		case 513u:
@@ -1241,7 +1302,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				QueueShowPlaybackModes();
 				return new IntPtr(1);
 			case DesktopSpecialAction.ShowNativeComments:
-				QueueShowNativeComments();
+				QueueShowNativeComments(point, workingArea);
 				return new IntPtr(1);
 			}
 			IntPtr fixedTarget = IsProgressPoint(point) ? qqWindow : IntPtr.Zero;
@@ -1308,21 +1369,55 @@ internal sealed class WallpaperContext : ApplicationContext
 		return DesktopInputPolicy.IsPointInAny(point, progressControlAreas);
 	}
 
-	private void QueueShowNativeComments()
+	private bool TryGetLyricTimestamp(Point point, out int seconds)
+	{
+		TimestampControlArea[] areas = lyricTimestampAreas;
+		for (int index = 0; index < areas.Length; index++)
+		{
+			if (!areas[index].Bounds.Contains(point)) continue;
+			seconds = areas[index].Seconds;
+			return true;
+		}
+		seconds = 0;
+		return false;
+	}
+
+	private void QueueShowNativeComments(Point point, Rectangle work)
 	{
 		try
 		{
 			window.BeginInvoke((Action)delegate
 			{
 				interactionActive = false;
+				progressSeekActive = false;
 				interactionTarget = IntPtr.Zero;
+				nativePresentationGraceUntil = DateTime.UtcNow.AddSeconds(3.0);
 				PresentSourceWindow();
-				Native.SetForegroundWindow(qqWindow);
-				bool invoked = QQMusicAccessibility.TryInvokeVisibleControl(qqWindow,
-					"评论", AllAccessibleSpace) ||
-					QQMusicAccessibility.TryInvokeVisibleControl(qqWindow,
-						"Comments", AllAccessibleSpace);
-				Log("Native comments presented; invoked=" + invoked);
+				ForwardPointerToSource(point, work, WmLButtonDown, new IntPtr(1),
+					qqWindow);
+				ForwardPointerToSource(point, work, WmLButtonUp, IntPtr.Zero, qqWindow);
+				Log("Native comments presented by control-bound click.");
+			});
+		}
+		catch { }
+	}
+
+	private void QueueSeekToSeconds(int seconds, Rectangle work)
+	{
+		try
+		{
+			window.BeginInvoke((Action)delegate
+			{
+				Rectangle[] progress = progressControlAreas;
+				int total = playbackTotalSeconds;
+				if (progress.Length == 0 || total <= 0) return;
+				int clamped = Math.Max(0, Math.Min(seconds, total));
+				Rectangle timeline = progress[0];
+				int x = timeline.Left + (int)Math.Round(
+					(double)clamped / total * Math.Max(1, timeline.Width - 1));
+				ForwardProgressClick(new Point(x, timeline.Top + timeline.Height / 2),
+					work, force: true);
+				Log("Lyric timestamp seek: " + clamped + "/" + total + " seconds.");
 			});
 		}
 		catch { }
@@ -1519,41 +1614,75 @@ internal sealed class WallpaperContext : ApplicationContext
 							176, "下一首", "下一曲", "Next", "Next track");
 						mediaControlAreas = mediaAreas.ToArray();
 
-						List<Rectangle> sliderCandidates = new List<Rectangle>(
-							QQMusicAccessibility.GetVisibleSliderBounds(source,
-								AllAccessibleSpace));
-						string[] progressDescriptions =
+						AccessibleTimeLabel[] timeLabels =
+							QQMusicAccessibility.GetVisibleTimeLabels(source,
+								AllAccessibleSpace);
+						Rectangle bestTimeline = Rectangle.Empty;
+						int bestCurrentIndex = -1;
+						int bestTotalIndex = -1;
+						for (int currentIndex = 0; currentIndex < timeLabels.Length;
+							currentIndex++)
 						{
-							"播放进度", "播放进度条", "进度", "Progress", "Seek"
-						};
-						for (int progressIndex = 0; progressIndex <
-							progressDescriptions.Length; progressIndex++)
-						{
-							sliderCandidates.AddRange(
-								QQMusicAccessibility.GetVisibleControlBounds(source,
-									progressDescriptions[progressIndex], AllAccessibleSpace));
-						}
-						Rectangle bestProgress = Rectangle.Empty;
-						for (int sliderIndex = 0; sliderIndex < sliderCandidates.Count;
-							sliderIndex++)
-						{
-							Rectangle slider = sliderCandidates[sliderIndex];
-							if (slider.Width < Math.Max(120, slider.Height * 8) ||
-								slider.Width <= bestProgress.Width) continue;
-							slider.Offset(visibleArea.Left - sourceRect.Left,
-								visibleArea.Top - sourceRect.Top);
-							slider = Rectangle.Intersect(visibleArea, slider);
-							if (!slider.IsEmpty && slider.Height < 12)
+							for (int totalIndex = 0; totalIndex < timeLabels.Length;
+								totalIndex++)
 							{
-								int centerY = slider.Top + slider.Height / 2;
-								slider = Rectangle.Intersect(visibleArea, new Rectangle(
-									slider.Left, centerY - 6, slider.Width, 12));
+								if (currentIndex == totalIndex ||
+									timeLabels[currentIndex].Bounds.Left >=
+										timeLabels[totalIndex].Bounds.Left) continue;
+								if (DesktopInputPolicy.TryBuildTimeline(
+									timeLabels[currentIndex].Bounds,
+									timeLabels[currentIndex].Seconds,
+									timeLabels[totalIndex].Bounds,
+									timeLabels[totalIndex].Seconds,
+									sourceRect.Bottom, out Rectangle timeline) &&
+									timeline.Width > bestTimeline.Width)
+								{
+									bestTimeline = timeline;
+									bestCurrentIndex = currentIndex;
+									bestTotalIndex = totalIndex;
+								}
 							}
-							if (!slider.IsEmpty && slider.Top >= visibleArea.Top +
-								visibleArea.Height / 2) bestProgress = slider;
 						}
-						progressControlAreas = bestProgress.IsEmpty
-							? new Rectangle[0] : new[] { bestProgress };
+
+						if (bestTotalIndex >= 0)
+						{
+							bestTimeline.Offset(visibleArea.Left - sourceRect.Left,
+								visibleArea.Top - sourceRect.Top);
+							bestTimeline = Rectangle.Intersect(visibleArea, bestTimeline);
+							progressControlAreas = bestTimeline.IsEmpty
+								? new Rectangle[0] : new[] { bestTimeline };
+							playbackTotalSeconds = timeLabels[bestTotalIndex].Seconds;
+						}
+						else
+						{
+							progressControlAreas = new Rectangle[0];
+							playbackTotalSeconds = 0;
+						}
+
+						List<TimestampControlArea> lyricAreas =
+							new List<TimestampControlArea>();
+						int sourceWidth = sourceRect.Right - sourceRect.Left;
+						for (int labelIndex = 0; labelIndex < timeLabels.Length;
+							labelIndex++)
+						{
+							if (labelIndex == bestCurrentIndex || labelIndex == bestTotalIndex ||
+								timeLabels[labelIndex].Bounds.Top >= sourceRect.Bottom - 120 ||
+								timeLabels[labelIndex].Bounds.Left >= sourceRect.Left +
+									sourceWidth / 2 || playbackTotalSeconds <= 0 ||
+								timeLabels[labelIndex].Seconds > playbackTotalSeconds) continue;
+							Rectangle mapped = timeLabels[labelIndex].Bounds;
+							mapped.Offset(visibleArea.Left - sourceRect.Left,
+								visibleArea.Top - sourceRect.Top);
+							mapped = Rectangle.FromLTRB(mapped.Left - 32, mapped.Top - 6,
+								mapped.Right + 8, mapped.Bottom + 6);
+							mapped = Rectangle.Intersect(visibleArea, mapped);
+							if (!mapped.IsEmpty)
+							{
+								lyricAreas.Add(new TimestampControlArea(mapped,
+									timeLabels[labelIndex].Seconds));
+							}
+						}
+						lyricTimestampAreas = lyricAreas.ToArray();
 					}
 					qqInteractiveAreas = areas;
 				}
@@ -1604,6 +1733,15 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			ForwardPointerToSource(screenPoint, work, WmMouseHover, IntPtr.Zero, fixedTarget);
 		}
+		DateTime now = DateTime.UtcNow;
+		if (screenPoint.X < work.Left + work.Width / 2 &&
+			screenPoint.Y < work.Bottom - 120 &&
+			(now - lastLyricControlRefresh).TotalMilliseconds >= 250.0)
+		{
+			lastLyricControlRefresh = now;
+			nextAccessibilityRefresh = DateTime.MinValue;
+			RefreshInteractiveAreasIfDue();
+		}
 	}
 
 	private IntPtr ForwardPointerToSource(Point screenPoint, Rectangle work, uint message,
@@ -1628,6 +1766,23 @@ internal sealed class WallpaperContext : ApplicationContext
 				target.ToInt64());
 		}
 		return target;
+	}
+
+	private void ForwardProgressClick(Point screenPoint, Rectangle work, bool force)
+	{
+		Rectangle[] progress = progressControlAreas;
+		if (progress.Length == 0) return;
+		Rectangle timeline = progress[0];
+		Point target = new Point(
+			Math.Max(timeline.Left, Math.Min(screenPoint.X, timeline.Right - 1)),
+			timeline.Top + timeline.Height / 2);
+		DateTime now = DateTime.UtcNow;
+		if (!force && (now - lastProgressSeekForwarded).TotalMilliseconds < 32.0 &&
+			Math.Abs(target.X - lastProgressSeekPoint.X) < 4) return;
+		lastProgressSeekForwarded = now;
+		lastProgressSeekPoint = target;
+		ForwardPointerToSource(target, work, WmLButtonDown, new IntPtr(1), qqWindow);
+		ForwardPointerToSource(target, work, WmLButtonUp, IntPtr.Zero, qqWindow);
 	}
 
 	private Rectangle[] GetQQAccessoryAreas(IntPtr source, Native.RECT sourceRect,
@@ -1806,6 +1961,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				bounds.Width, bounds.Height, SwpFrameChanged | SwpShowWindow | 16u);
 			Native.GetWindowRect(qqWindow, out var rect);
 			sourcePresented = false;
+			nativePresentationGraceUntil = DateTime.MinValue;
 			return positioned && rect.Left < bounds.Left &&
 				(rect.Right - rect.Left) == bounds.Width && (rect.Bottom - rect.Top) == bounds.Height;
 		}
@@ -1814,7 +1970,11 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void PresentSourceWindow()
 	{
-		AlignSourceToWorkingArea();
+		Rectangle bounds = Screen.PrimaryScreen.WorkingArea;
+		Native.ShowWindow(qqWindow, SwShowNoActivate);
+		Native.SetWindowPos(qqWindow, IntPtr.Zero, bounds.Left, bounds.Top,
+			bounds.Width, bounds.Height,
+			SwpFrameChanged | SwpShowWindow | SwpNoActivate);
 		sourcePresented = true;
 	}
 

@@ -5,12 +5,14 @@
 ### Fixed
 
 - 缩小底部媒体键的坐标兜底范围，并优先使用 QQ 音乐暴露的播放、上一首和下一首控件边界，避免播放键覆盖进度条。
-- 识别原生进度滑块并将点击、拖动固定发送到 QQ 音乐主窗口，恢复桌面进度跳转。
-- 点击评论时显示并调用 QQ 音乐原生评论界面；原生窗口会保持可用，直到用户切换到其他窗口。
+- 从 QQ 音乐公开的当前/总时长控件推导进度轨道；支持桌面进度条单击和连续拖动跳转。
+- 点击歌词时间标签可按对应时间跳转播放。
+- 点击评论时按原生控件边界打开 QQ 音乐评论界面；不再强制抢焦点或触发任务栏红色闪烁，原生窗口会保持可用，直到用户切换到其他窗口。
 
 - Reduced the coordinate fallback for bottom media buttons and prefer QQ Music's accessible play, previous, and next bounds so play/pause no longer covers the progress bar.
-- Detect the native progress slider and route clicks and drags to QQ Music's main window, restoring desktop seeking.
-- Present and invoke QQ Music's native comments interface; it remains usable until the user switches away.
+- Infer the timeline from QQ Music's exposed current/total-time controls and support both desktop progress clicks and continuous scrubbing.
+- Seek playback by clicking an exposed lyric timestamp.
+- Open native comments through the exact exposed control bounds without forcing focus or flashing the taskbar; the interface remains usable until the user switches away.
 
 ## 1.1.0 - 2026-10-20
 

@@ -32,6 +32,32 @@ internal static class Program
 			DesktopSpecialAction.ShowNativeComments,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, true));
 
+		AssertEqual("progress down starts click scrubbing",
+			ProgressPointerAction.ClickAndBegin,
+			DesktopInputPolicy.ResolveProgressPointerAction(513u, false));
+		AssertEqual("progress move emits another click",
+			ProgressPointerAction.Click,
+			DesktopInputPolicy.ResolveProgressPointerAction(512u, true));
+		AssertEqual("progress up emits the final click",
+			ProgressPointerAction.ClickAndEnd,
+			DesktopInputPolicy.ResolveProgressPointerAction(514u, true));
+
+		AssertTrue("lyric timestamp is parsed",
+			DesktopInputPolicy.TryParseTimestamp(" 03:32 ", out int lyricSeconds) &&
+			lyricSeconds == 212);
+		AssertFalse("overflowing timestamp is rejected",
+			DesktopInputPolicy.TryParseTimestamp("999999999:59", out _));
+		AssertTrue("bottom time labels define the real timeline",
+			DesktopInputPolicy.TryBuildTimeline(new Rectangle(557, 1007, 50, 14), 78,
+				new Rectangle(1313, 1007, 50, 14), 244, 1032,
+				out Rectangle timeline) &&
+			timeline == new Rectangle(615, 1005, 690, 18));
+
+		DateTime now = new DateTime(2026, 10, 31, 19, 0, 0, DateTimeKind.Utc);
+		AssertTrue("native comments survive foreground-denial grace period",
+			DesktopInputPolicy.ShouldKeepNativeSurfacePresented(true, false, now,
+				now.AddSeconds(3)));
+
 		if (failures != 0)
 		{
 			Console.Error.WriteLine($"Desktop input policy: {failures} failure(s).");
