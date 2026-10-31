@@ -6,19 +6,6 @@ using Accessibility;
 
 namespace QQMusicWallpaper;
 
-internal readonly struct AccessibleTimeLabel
-{
-	public AccessibleTimeLabel(Rectangle bounds, int seconds)
-	{
-		Bounds = bounds;
-		Seconds = seconds;
-	}
-
-	public Rectangle Bounds { get; }
-
-	public int Seconds { get; }
-}
-
 internal static class QQMusicAccessibility
 {
 	private sealed class ActionCandidate
@@ -56,6 +43,72 @@ internal static class QQMusicAccessibility
 
 	[DllImport("oleacc.dll")]
 	private static extern int AccessibleObjectFromWindow(IntPtr window, uint objectId, ref Guid interfaceId, [In][Out][MarshalAs(UnmanagedType.Interface)] ref object accessibleObject);
+
+	public static AccessibleTreeSnapshot CaptureSnapshot(IntPtr window)
+	{
+		List<AccessibleNodeSnapshot> nodes = new List<AccessibleNodeSnapshot>();
+		object accessibleObject = null;
+		Guid interfaceId = typeof(IAccessible).GUID;
+		try
+		{
+			if (AccessibleObjectFromWindow(window, ObjIdClient, ref interfaceId,
+				ref accessibleObject) != 0 ||
+				!(accessibleObject is IAccessible accessible))
+			{
+				return new AccessibleTreeSnapshot(nodes.ToArray());
+			}
+			int visited = 0;
+			CaptureNodes(accessible, 0, ref visited, nodes);
+		}
+		catch { }
+		return new AccessibleTreeSnapshot(nodes.ToArray());
+	}
+
+	private static void CaptureNodes(IAccessible accessible, int depth,
+		ref int visited, List<AccessibleNodeSnapshot> nodes)
+	{
+		if (depth > MaxDepth || visited++ > MaxNodes) return;
+		int childCount;
+		try { childCount = accessible.accChildCount; }
+		catch { return; }
+		for (int index = 1; index <= childCount; index++)
+		{
+			IAccessible child = null;
+			try { child = accessible.get_accChild(index) as IAccessible; }
+			catch { }
+			IAccessible node = child ?? accessible;
+			object childId = child == null ? (object)index : 0;
+			int role = 0;
+			try { role = Convert.ToInt32(node.get_accRole(childId)); } catch { }
+			bool interactive = InteractiveRoles.Contains(role);
+			bool timeText = role == 41 || role == 42;
+			if (interactive || timeText)
+			{
+				string name = "";
+				string description = "";
+				Rectangle bounds = Rectangle.Empty;
+				try { name = node.get_accName(childId) ?? ""; } catch { }
+				if (interactive)
+				{
+					try { description = node.get_accDescription(childId) ?? ""; }
+					catch { }
+				}
+				try
+				{
+					node.accLocation(out int left, out int top, out int width,
+						out int height, childId);
+					bounds = new Rectangle(left, top, width, height);
+				}
+				catch { }
+				if (bounds.Width > 0 && bounds.Height > 0)
+				{
+					nodes.Add(new AccessibleNodeSnapshot(name, description, "", role,
+						interactive && IsHidden(node, childId), depth, bounds));
+				}
+			}
+			if (child != null) CaptureNodes(child, depth + 1, ref visited, nodes);
+		}
+	}
 
 	public static bool TryFindVisibleControl(IntPtr window, string description, Rectangle visibleArea, out Rectangle bounds)
 	{

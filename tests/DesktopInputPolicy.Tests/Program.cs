@@ -84,6 +84,12 @@ internal static class Program
 			DesktopInputPolicy.ShouldDismissTransientUi(513u, true, false));
 		AssertFalse("desktop icon click does not dismiss transient QQ UI",
 			DesktopInputPolicy.ShouldDismissTransientUi(513u, true, true));
+		AssertTrue("desktop icon lookup is limited to press events",
+			DesktopInputPolicy.ShouldCheckDesktopIcon(513u));
+		AssertFalse("button release avoids a cross-process desktop icon lookup",
+			DesktopInputPolicy.ShouldCheckDesktopIcon(514u));
+		AssertFalse("pointer movement avoids a cross-process desktop icon lookup",
+			DesktopInputPolicy.ShouldCheckDesktopIcon(512u));
 		AssertEqual("QQ main surface cancellation never navigates back",
 			TransientDismissalAction.CancelOnly,
 			DesktopInputPolicy.ResolveTransientDismissalAction(isMainSurface: true));
@@ -121,6 +127,39 @@ internal static class Program
 
 		AssertFalse("comment launch never keeps the main player over the desktop",
 			DesktopInputPolicy.ShouldKeepNativeSurfacePresented(true, false));
+
+		AccessibleNodeSnapshot pageComment = new AccessibleNodeSnapshot(
+			"评论", "", "", 43, false, 8,
+			new Rectangle(120, 180, 30, 38));
+		AccessibleNodeSnapshot playerComment = new AccessibleNodeSnapshot(
+			"评论999+", "评论", "", 43, false, 6,
+			new Rectangle(120, 970, 51, 35));
+		AccessibleNodeSnapshot staleComment = new AccessibleNodeSnapshot(
+			"评论999+", "评论", "", 43, false, 5,
+			new Rectangle(120, 1060, 51, 35));
+		AccessibleTreeSnapshot controlSnapshot = new AccessibleTreeSnapshot(
+			new[] { pageComment, playerComment, staleComment });
+		AssertTrue("semantic description selects the player comment control",
+			controlSnapshot.TryGetControlTarget(work, out AccessibleNodeSnapshot commentTarget,
+				"评论", "Comments") && commentTarget.Name == "评论999+" &&
+				commentTarget.Bounds == playerComment.Bounds);
+
+		AccessibleTreeSnapshot timelineSnapshot = new AccessibleTreeSnapshot(new[]
+		{
+			new AccessibleNodeSnapshot("01:18", "", "", 41, false, 6,
+				new Rectangle(557, 1007, 50, 14)),
+			new AccessibleNodeSnapshot("04:04", "", "", 41, false, 6,
+				new Rectangle(1313, 1007, 50, 14)),
+			new AccessibleNodeSnapshot("01:18", "", "", 41, false, 4,
+				new Rectangle(557, 1084, 50, 14)),
+			new AccessibleNodeSnapshot("04:04", "", "", 41, false, 4,
+				new Rectangle(1313, 1084, 50, 14))
+		});
+		AccessibleTimeLabel[] activeTimes = timelineSnapshot.GetTimeLabels(work,
+			includeHidden: true);
+		AssertTrue("only the active player control group supplies timeline labels",
+			activeTimes.Length == 2 && activeTimes[0].Bounds.Top < work.Bottom &&
+			activeTimes[1].Bounds.Top < work.Bottom);
 
 		if (failures != 0)
 		{

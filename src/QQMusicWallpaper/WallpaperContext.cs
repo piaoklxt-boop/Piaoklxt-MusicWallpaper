@@ -230,11 +230,12 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private DateTime lastHoverForwarded = DateTime.MinValue;
 
-	private DateTime lastLyricControlRefresh = DateTime.MinValue;
-
 	private bool sourcePresented;
 
 	private volatile Rectangle[] qqInteractiveAreas = new Rectangle[0];
+
+	private volatile AccessibleTreeSnapshot qqAccessibilitySnapshot =
+		new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]);
 
 	private volatile Rectangle[] volumeControlAreas = new Rectangle[0];
 
@@ -668,7 +669,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		if (embedded)
 		{
 			WatchMouseHook();
-			RefreshInteractiveAreasIfDue();
+			if (!interactionActive) RefreshInteractiveAreasIfDue();
 			if (Native.IsIconic(qqWindow))
 			{
 				Log("QQ Music source was minimized; restoring it maximized behind the desktop.");
@@ -1231,6 +1232,10 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 		}
+		if (num == WmLButtonUp || num == WmRButtonUp)
+		{
+			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+		}
 		if (point.Y >= workingArea.Bottom)
 		{
 			if (num == 513)
@@ -1281,7 +1286,8 @@ internal sealed class WallpaperContext : ApplicationContext
 			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 		}
 		IntPtr intPtr2 = FindDesktopListView();
-		if (intPtr2 == IntPtr.Zero || IsDesktopRenameActive(intPtr2) || IsDesktopIconAt(intPtr2, point))
+		if (intPtr2 == IntPtr.Zero || IsDesktopRenameActive(intPtr2) ||
+			DesktopInputPolicy.ShouldCheckDesktopIcon(num) && IsDesktopIconAt(intPtr2, point))
 		{
 			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
 		}
@@ -1489,9 +1495,11 @@ internal sealed class WallpaperContext : ApplicationContext
 			{
 				if (!TryMapToSource(point, work, out var ignoredTarget,
 					out var sourcePoint)) return;
-				bool invoked = QQMusicAccessibility.TryGetControlActionPointAtPoint(
-					qqWindow, new Point(sourcePoint.X, sourcePoint.Y),
-					out Point actionPoint) && PostQQControlClick(actionPoint);
+				AccessibleTreeSnapshot snapshot = qqAccessibilitySnapshot;
+				bool invoked = snapshot.TryGetControlTargetAtPoint(
+					new Point(sourcePoint.X, sourcePoint.Y),
+					out AccessibleNodeSnapshot target) &&
+					PostQQControlClick(GetControlCenter(target));
 				nextAccessibilityRefresh = DateTime.MinValue;
 				Log("MSAA point control invoked; applied=" + invoked);
 			});
@@ -1589,17 +1597,24 @@ internal sealed class WallpaperContext : ApplicationContext
 	private bool TryInvokeQQControl(params string[] descriptions)
 	{
 		if (!Native.GetWindowRect(qqWindow, out var rect)) return false;
-		if (!QQMusicAccessibility.TryGetControlActionPoint(qqWindow,
-			Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom),
-			out Point actionPoint, descriptions)) return false;
 		Rectangle sourceBounds = Rectangle.FromLTRB(rect.Left, rect.Top,
 			rect.Right, rect.Bottom);
+		AccessibleTreeSnapshot snapshot = qqAccessibilitySnapshot;
+		if (!snapshot.TryGetControlTarget(sourceBounds,
+			out AccessibleNodeSnapshot target, descriptions)) return false;
+		Point actionPoint = GetControlCenter(target);
 		if (!sourceBounds.Contains(actionPoint))
 		{
 			actionPoint.Offset(bottomControlCorrectionX, bottomControlCorrectionY);
 			if (!sourceBounds.Contains(actionPoint)) return false;
 		}
 		return PostQQControlClick(actionPoint);
+	}
+
+	private static Point GetControlCenter(AccessibleNodeSnapshot target)
+	{
+		return new Point(target.Bounds.Left + target.Bounds.Width / 2,
+			target.Bounds.Top + target.Bounds.Height / 2);
 	}
 
 	private bool PostQQControlClick(Point sourcePoint)
@@ -1937,12 +1952,16 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			try
 			{
-				Rectangle[] areas = QQMusicAccessibility.GetInteractiveBoundsIncludingHidden(source,
-					new Rectangle(-32768, -32768, 65536, 65536));
+				AccessibleTreeSnapshot snapshot =
+					QQMusicAccessibility.CaptureSnapshot(source);
+				Rectangle[] areas = snapshot.GetInteractiveBounds(AllAccessibleSpace,
+					includeHidden: true);
 				if (source == qqWindow)
 				{
 					if (Native.GetWindowRect(source, out var sourceRect))
 					{
+						Rectangle sourceBounds = Rectangle.FromLTRB(sourceRect.Left,
+							sourceRect.Top, sourceRect.Right, sourceRect.Bottom);
 						for (int i = 0; i < areas.Length; i++)
 						{
 							areas[i].Offset(visibleArea.Left - sourceRect.Left,
@@ -1952,10 +1971,10 @@ internal sealed class WallpaperContext : ApplicationContext
 						combined.AddRange(GetQQAccessoryAreas(source, sourceRect, visibleArea));
 						areas = combined.ToArray();
 						Rectangle volumeBounds;
-						if (QQMusicAccessibility.TryFindVisibleControl(source, "调节音量",
-							new Rectangle(-32768, -32768, 65536, 65536), out volumeBounds) ||
-							QQMusicAccessibility.TryFindVisibleControl(source, "Adjust volume",
-							new Rectangle(-32768, -32768, 65536, 65536), out volumeBounds))
+						if (snapshot.TryFindVisibleControl("调节音量",
+							AllAccessibleSpace, out volumeBounds) ||
+							snapshot.TryFindVisibleControl("Adjust volume",
+							AllAccessibleSpace, out volumeBounds))
 						{
 							volumeBounds.Offset(visibleArea.Left - sourceRect.Left,
 								visibleArea.Top - sourceRect.Top);
@@ -1967,8 +1986,8 @@ internal sealed class WallpaperContext : ApplicationContext
 						};
 						for (int modeIndex = 0; modeIndex < playbackModes.Length; modeIndex++)
 						{
-							if (QQMusicAccessibility.TryFindVisibleControl(source,
-								playbackModes[modeIndex], AllAccessibleSpace,
+							if (snapshot.TryFindVisibleControl(playbackModes[modeIndex],
+								AllAccessibleSpace,
 								out var playbackBounds))
 							{
 								currentPlaybackMode = playbackModes[modeIndex];
@@ -1978,21 +1997,16 @@ internal sealed class WallpaperContext : ApplicationContext
 								break;
 							}
 						}
-						Rectangle[] comments = QQMusicAccessibility.GetVisibleControlBounds(
-							source, "评论", AllAccessibleSpace);
-						if (comments.Length == 0)
+						if (snapshot.TryGetControlTarget(sourceBounds,
+							out AccessibleNodeSnapshot commentTarget,
+							"评论", "Comments"))
 						{
-							comments = QQMusicAccessibility.GetVisibleControlBounds(source,
-								"Comments", AllAccessibleSpace);
-						}
-						if (comments.Length > 0)
-						{
-							Rectangle commentBounds = comments[0];
+							Rectangle commentBounds = commentTarget.Bounds;
 							commentBounds.Offset(visibleArea.Left - sourceRect.Left,
 								visibleArea.Top - sourceRect.Top);
 							commentControlAreas = new[] { commentBounds };
 						}
-						Rectangle[] qualityCandidates = GetMappedControlCandidates(source,
+						Rectangle[] qualityCandidates = GetMappedControlCandidates(snapshot,
 							sourceRect, visibleArea, includeHidden: true, "切换品质",
 							"Change quality");
 						Point inferredBottomCorrection = Point.Empty;
@@ -2001,40 +2015,39 @@ internal sealed class WallpaperContext : ApplicationContext
 						bottomControlCorrectionX = inferredBottomCorrection.X;
 						bottomControlCorrectionY = inferredBottomCorrection.Y;
 						lyricTranslationControlAreas = GetUsableControlAreas(
-							GetMappedControlCandidates(source, sourceRect, visibleArea,
+							GetMappedControlCandidates(snapshot, sourceRect, visibleArea,
 								includeHidden: true, "翻译歌词", "Translation lyrics"),
 							visibleArea, Point.Empty);
 						accompanimentControlAreas = GetUsableControlAreas(
-							GetMappedControlCandidates(source, sourceRect, visibleArea,
+							GetMappedControlCandidates(snapshot, sourceRect, visibleArea,
 								includeHidden: true, "伴唱", "伴奏", "Accompaniment"),
 							visibleArea, Point.Empty);
 						playerStyleControlAreas = GetUsableControlAreas(
-							GetMappedControlCandidates(source, sourceRect, visibleArea,
+							GetMappedControlCandidates(snapshot, sourceRect, visibleArea,
 								includeHidden: true, "播放器样式", "Player style"),
 							visibleArea, inferredBottomCorrection);
 						qualityControlAreas = GetUsableControlAreas(qualityCandidates,
 							visibleArea, inferredBottomCorrection);
 						soundEffectsControlAreas = GetUsableControlAreas(
-							GetMappedControlCandidates(source, sourceRect, visibleArea,
+							GetMappedControlCandidates(snapshot, sourceRect, visibleArea,
 								includeHidden: true, "音效", "Sound effects"),
 							visibleArea, inferredBottomCorrection);
 						playlistControlAreas = GetUsableControlAreas(
-							GetMappedControlCandidates(source, sourceRect, visibleArea,
+							GetMappedControlCandidates(snapshot, sourceRect, visibleArea,
 								includeHidden: true, "播放队列", "播放列表", "Play queue",
 								"Playlist"), visibleArea, inferredBottomCorrection);
 
 						List<MediaControlArea> mediaAreas = new List<MediaControlArea>();
-						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
+						AddMediaControlAreas(mediaAreas, snapshot, sourceRect, visibleArea,
 							179, "播放", "暂停", "Play", "Pause");
-						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
+						AddMediaControlAreas(mediaAreas, snapshot, sourceRect, visibleArea,
 							177, "上一首", "上一曲", "Previous", "Previous track");
-						AddMediaControlAreas(mediaAreas, source, sourceRect, visibleArea,
+						AddMediaControlAreas(mediaAreas, snapshot, sourceRect, visibleArea,
 							176, "下一首", "下一曲", "Next", "Next track");
 						mediaControlAreas = mediaAreas.ToArray();
 
-						AccessibleTimeLabel[] timeLabels =
-							QQMusicAccessibility.GetVisibleTimeLabels(source,
-								AllAccessibleSpace);
+						AccessibleTimeLabel[] timeLabels = snapshot.GetTimeLabels(
+							sourceBounds, includeHidden: true);
 						Rectangle bestTimeline = Rectangle.Empty;
 						int bestCurrentIndex = -1;
 						int bestTotalIndex = -1;
@@ -2102,6 +2115,7 @@ internal sealed class WallpaperContext : ApplicationContext
 						}
 						lyricTimestampAreas = lyricAreas.ToArray();
 					}
+					qqAccessibilitySnapshot = snapshot;
 					qqInteractiveAreas = areas;
 				}
 			}
@@ -2112,7 +2126,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		});
 	}
 
-	private static Rectangle[] GetMappedControlCandidates(IntPtr source,
+	private static Rectangle[] GetMappedControlCandidates(AccessibleTreeSnapshot snapshot,
 		Native.RECT sourceRect, Rectangle visibleArea, bool includeHidden,
 		params string[] descriptions)
 	{
@@ -2120,11 +2134,8 @@ internal sealed class WallpaperContext : ApplicationContext
 		for (int descriptionIndex = 0; descriptionIndex < descriptions.Length;
 			descriptionIndex++)
 		{
-			Rectangle[] controls = includeHidden
-				? QQMusicAccessibility.GetControlBoundsIncludingHidden(source,
-					descriptions[descriptionIndex], AllAccessibleSpace)
-				: QQMusicAccessibility.GetVisibleControlBounds(source,
-					descriptions[descriptionIndex], AllAccessibleSpace);
+			Rectangle[] controls = snapshot.GetControlBounds(
+				descriptions[descriptionIndex], AllAccessibleSpace, includeHidden);
 			for (int controlIndex = 0; controlIndex < controls.Length; controlIndex++)
 			{
 				Rectangle mapped = controls[controlIndex];
@@ -2158,14 +2169,15 @@ internal sealed class WallpaperContext : ApplicationContext
 	}
 
 	private static void AddMediaControlAreas(List<MediaControlArea> result,
-		IntPtr source, Native.RECT sourceRect, Rectangle visibleArea, byte virtualKey,
+		AccessibleTreeSnapshot snapshot, Native.RECT sourceRect,
+		Rectangle visibleArea, byte virtualKey,
 		params string[] descriptions)
 	{
 		for (int descriptionIndex = 0; descriptionIndex < descriptions.Length;
 			descriptionIndex++)
 		{
-			Rectangle[] controls = QQMusicAccessibility.GetControlBoundsIncludingHidden(source,
-				descriptions[descriptionIndex], AllAccessibleSpace);
+			Rectangle[] controls = snapshot.GetControlBounds(
+				descriptions[descriptionIndex], AllAccessibleSpace, includeHidden: true);
 			for (int controlIndex = 0; controlIndex < controls.Length; controlIndex++)
 			{
 				Rectangle mapped = controls[controlIndex];
@@ -2195,15 +2207,6 @@ internal sealed class WallpaperContext : ApplicationContext
 		if (fixedTarget != IntPtr.Zero)
 		{
 			ForwardPointerToSource(screenPoint, work, WmMouseHover, IntPtr.Zero, fixedTarget);
-		}
-		DateTime now = DateTime.UtcNow;
-		if (screenPoint.X < work.Left + work.Width / 2 &&
-			screenPoint.Y < work.Bottom - 120 &&
-			(now - lastLyricControlRefresh).TotalMilliseconds >= 250.0)
-		{
-			lastLyricControlRefresh = now;
-			nextAccessibilityRefresh = DateTime.MinValue;
-			RefreshInteractiveAreasIfDue();
 		}
 	}
 
@@ -2354,17 +2357,25 @@ internal sealed class WallpaperContext : ApplicationContext
 	{
 		if (!DesktopInputPolicy.TryGetMediaKey(point, mediaControlAreas,
 			progressControlAreas, out byte key)) return false;
-		switch (key)
+		ThreadPool.QueueUserWorkItem(delegate
 		{
-		case 179:
-			return TryInvokeQQControl("播放", "暂停", "Play", "Pause");
-		case 177:
-			return TryInvokeQQControl("上一首", "上一曲", "Previous", "Previous track");
-		case 176:
-			return TryInvokeQQControl("下一首", "下一曲", "Next", "Next track");
-		default:
-			return false;
-		}
+			bool invoked = false;
+			switch (key)
+			{
+			case 179:
+				invoked = TryInvokeQQControl("播放", "暂停", "Play", "Pause");
+				break;
+			case 177:
+				invoked = TryInvokeQQControl("上一首", "上一曲", "Previous",
+					"Previous track");
+				break;
+			case 176:
+				invoked = TryInvokeQQControl("下一首", "下一曲", "Next", "Next track");
+				break;
+			}
+			if (invoked) nextAccessibilityRefresh = DateTime.MinValue;
+		});
+		return true;
 	}
 
 	private bool IsQQMusicWindow(IntPtr hwnd)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 
@@ -58,6 +59,208 @@ internal readonly struct TimestampControlArea
 	public int Seconds { get; }
 }
 
+internal readonly struct AccessibleTimeLabel
+{
+	public AccessibleTimeLabel(Rectangle bounds, int seconds)
+	{
+		Bounds = bounds;
+		Seconds = seconds;
+	}
+
+	public Rectangle Bounds { get; }
+
+	public int Seconds { get; }
+}
+
+internal readonly struct AccessibleNodeSnapshot
+{
+	public AccessibleNodeSnapshot(string name, string description, string action,
+		int role, bool hidden, int depth, Rectangle bounds)
+	{
+		Name = name ?? "";
+		Description = description ?? "";
+		Action = action ?? "";
+		Role = role;
+		Hidden = hidden;
+		Depth = depth;
+		Bounds = bounds;
+	}
+
+	public string Name { get; }
+	public string Description { get; }
+	public string Action { get; }
+	public int Role { get; }
+	public bool Hidden { get; }
+	public int Depth { get; }
+	public Rectangle Bounds { get; }
+}
+
+internal sealed class AccessibleTreeSnapshot
+{
+	private static readonly HashSet<int> InteractiveRoles = new HashSet<int>
+	{
+		12, 30, 43, 44, 45, 46, 47, 51
+	};
+
+	private readonly AccessibleNodeSnapshot[] nodes;
+
+	public AccessibleTreeSnapshot(AccessibleNodeSnapshot[] nodes)
+	{
+		this.nodes = nodes ?? new AccessibleNodeSnapshot[0];
+	}
+
+	public bool IsEmpty => nodes.Length == 0;
+
+	public Rectangle[] GetInteractiveBounds(Rectangle searchArea,
+		bool includeHidden)
+	{
+		List<Rectangle> result = new List<Rectangle>();
+		long searchAreaSize = (long)searchArea.Width * searchArea.Height;
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if (!includeHidden && node.Hidden) continue;
+			if (!InteractiveRoles.Contains(node.Role) &&
+				string.IsNullOrWhiteSpace(node.Action)) continue;
+			Rectangle item = Rectangle.Intersect(searchArea, node.Bounds);
+			long itemArea = (long)item.Width * item.Height;
+			if (item.Width > 1 && item.Height > 1 &&
+				itemArea < searchAreaSize / 3) result.Add(item);
+		}
+		return result.ToArray();
+	}
+
+	public Rectangle[] GetControlBounds(string description, Rectangle searchArea,
+		bool includeHidden)
+	{
+		List<Rectangle> result = new List<Rectangle>();
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if ((!includeHidden && node.Hidden) ||
+				!Matches(node, description)) continue;
+			Rectangle item = Rectangle.Intersect(searchArea, node.Bounds);
+			if (item.Width > 0 && item.Height > 0 && !result.Contains(item))
+				result.Add(item);
+		}
+		return result.ToArray();
+	}
+
+	public bool TryFindVisibleControl(string description, Rectangle searchArea,
+		out Rectangle bounds)
+	{
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if (node.Hidden || !Matches(node, description) ||
+				!searchArea.Contains(Center(node.Bounds))) continue;
+			bounds = node.Bounds;
+			return true;
+		}
+		bounds = Rectangle.Empty;
+		return false;
+	}
+
+	public bool TryGetControlTarget(Rectangle preferredArea,
+		out AccessibleNodeSnapshot target, params string[] descriptions)
+	{
+		int bestScore = int.MinValue;
+		long bestArea = long.MaxValue;
+		target = default;
+		bool found = false;
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if (node.Bounds.Width <= 0 || node.Bounds.Height <= 0) continue;
+			int matchScore = GetSemanticMatchScore(node, descriptions);
+			if (matchScore == 0) continue;
+			int score = matchScore;
+			if (!string.IsNullOrWhiteSpace(node.Action)) score += 100;
+			if (preferredArea.Contains(Center(node.Bounds))) score += 50;
+			if (!node.Hidden) score += 10;
+			long area = (long)node.Bounds.Width * node.Bounds.Height;
+			if (!found || score > bestScore ||
+				score == bestScore && node.Depth > target.Depth ||
+				score == bestScore && node.Depth == target.Depth && area < bestArea)
+			{
+				found = true;
+				bestScore = score;
+				bestArea = area;
+				target = node;
+			}
+		}
+		return found;
+	}
+
+	public bool TryGetControlTargetAtPoint(Point point,
+		out AccessibleNodeSnapshot target)
+	{
+		target = default;
+		long bestArea = long.MaxValue;
+		bool found = false;
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if ((!InteractiveRoles.Contains(node.Role) &&
+				string.IsNullOrWhiteSpace(node.Action)) ||
+				!node.Bounds.Contains(point)) continue;
+			long area = (long)node.Bounds.Width * node.Bounds.Height;
+			if (!found || node.Depth > target.Depth ||
+				node.Depth == target.Depth && area < bestArea)
+			{
+				found = true;
+				bestArea = area;
+				target = node;
+			}
+		}
+		return found;
+	}
+
+	public AccessibleTimeLabel[] GetTimeLabels(Rectangle activeSurface,
+		bool includeHidden)
+	{
+		List<AccessibleTimeLabel> result = new List<AccessibleTimeLabel>();
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if ((!includeHidden && node.Hidden) ||
+				!activeSurface.Contains(Center(node.Bounds))) continue;
+			string text = string.IsNullOrWhiteSpace(node.Name)
+				? node.Description : node.Name;
+			if (DesktopInputPolicy.TryParseTimestamp(text, out int seconds))
+				result.Add(new AccessibleTimeLabel(node.Bounds, seconds));
+		}
+		return result.ToArray();
+	}
+
+	private static int GetSemanticMatchScore(AccessibleNodeSnapshot node,
+		string[] descriptions)
+	{
+		int score = 0;
+		for (int index = 0; index < descriptions.Length; index++)
+		{
+			string candidate = descriptions[index];
+			if (string.Equals(node.Description, candidate,
+				StringComparison.Ordinal)) score = Math.Max(score, 300);
+			if (string.Equals(node.Name, candidate,
+				StringComparison.Ordinal)) score = Math.Max(score, 200);
+		}
+		return score;
+	}
+
+	private static bool Matches(AccessibleNodeSnapshot node, string description)
+	{
+		return string.Equals(node.Name, description, StringComparison.Ordinal) ||
+			string.Equals(node.Description, description, StringComparison.Ordinal);
+	}
+
+	private static Point Center(Rectangle bounds)
+	{
+		return new Point(bounds.Left + bounds.Width / 2,
+			bounds.Top + bounds.Height / 2);
+	}
+}
+
 internal static class DesktopInputPolicy
 {
 	public const int ControlActivationHoldMilliseconds = 80;
@@ -87,6 +290,11 @@ internal static class DesktopInputPolicy
 		bool isDesktopIcon)
 	{
 		return message == 513u && isDesktopSurface && !isDesktopIcon;
+	}
+
+	public static bool ShouldCheckDesktopIcon(uint message)
+	{
+		return message == 513u || message == 516u;
 	}
 
 	public static TransientDismissalAction ResolveTransientDismissalAction(
