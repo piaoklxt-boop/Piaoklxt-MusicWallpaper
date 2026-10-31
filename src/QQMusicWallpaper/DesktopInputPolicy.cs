@@ -33,6 +33,16 @@ internal enum TransientDismissalAction
 	CancelAndEscape
 }
 
+internal enum DesktopClickRoute
+{
+	None,
+	SpecialControl,
+	LyricTimestamp,
+	ProgressControl,
+	MediaControl,
+	GenericControl
+}
+
 internal readonly struct MediaControlArea
 {
 	public MediaControlArea(Rectangle bounds, byte virtualKey)
@@ -261,6 +271,68 @@ internal sealed class AccessibleTreeSnapshot
 	}
 }
 
+internal readonly struct AccessibleControlSurface
+{
+	public AccessibleControlSurface(IntPtr window, Rectangle bounds,
+		AccessibleTreeSnapshot controls)
+	{
+		Window = window;
+		Bounds = bounds;
+		Controls = controls ?? new AccessibleTreeSnapshot(
+			new AccessibleNodeSnapshot[0]);
+	}
+
+	public IntPtr Window { get; }
+	public Rectangle Bounds { get; }
+	public AccessibleTreeSnapshot Controls { get; }
+}
+
+internal static class AccessibleSurfaceRouter
+{
+	public static bool TryGetControlTargetAtPoint(Point point,
+		AccessibleControlSurface[] surfaces, out IntPtr window,
+		out AccessibleNodeSnapshot target)
+	{
+		window = IntPtr.Zero;
+		target = default;
+		long bestSurfaceArea = long.MaxValue;
+		bool found = false;
+		for (int index = 0; index < surfaces.Length; index++)
+		{
+			AccessibleControlSurface surface = surfaces[index];
+			if (!surface.Bounds.Contains(point) ||
+				!surface.Controls.TryGetControlTargetAtPoint(point,
+					out AccessibleNodeSnapshot candidate)) continue;
+			long area = (long)surface.Bounds.Width * surface.Bounds.Height;
+			if (found && area >= bestSurfaceArea) continue;
+			found = true;
+			bestSurfaceArea = area;
+			window = surface.Window;
+			target = candidate;
+		}
+		return found;
+	}
+
+	public static bool TryGetSurfaceAtPoint(Point point,
+		AccessibleControlSurface[] surfaces, out AccessibleControlSurface surface)
+	{
+		surface = default;
+		long bestArea = long.MaxValue;
+		bool found = false;
+		for (int index = 0; index < surfaces.Length; index++)
+		{
+			AccessibleControlSurface candidate = surfaces[index];
+			if (!candidate.Bounds.Contains(point)) continue;
+			long area = (long)candidate.Bounds.Width * candidate.Bounds.Height;
+			if (found && area >= bestArea) continue;
+			found = true;
+			bestArea = area;
+			surface = candidate;
+		}
+		return found;
+	}
+}
+
 internal static class DesktopInputPolicy
 {
 	public const int ControlActivationHoldMilliseconds = 80;
@@ -290,6 +362,19 @@ internal static class DesktopInputPolicy
 		bool isDesktopIcon)
 	{
 		return message == 513u && isDesktopSurface && !isDesktopIcon;
+	}
+
+	public static DesktopClickRoute ResolveDesktopClickRoute(
+		DesktopSpecialAction specialAction, bool hasMediaControl,
+		bool hasLyricTimestamp, bool hasProgressControl, bool hasGenericControl)
+	{
+		if (specialAction != DesktopSpecialAction.None)
+			return DesktopClickRoute.SpecialControl;
+		if (hasLyricTimestamp) return DesktopClickRoute.LyricTimestamp;
+		if (hasProgressControl) return DesktopClickRoute.ProgressControl;
+		if (hasMediaControl) return DesktopClickRoute.MediaControl;
+		if (hasGenericControl) return DesktopClickRoute.GenericControl;
+		return DesktopClickRoute.None;
 	}
 
 	public static bool ShouldCheckDesktopIcon(uint message)

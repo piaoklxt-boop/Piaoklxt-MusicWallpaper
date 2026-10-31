@@ -57,6 +57,18 @@ internal static class Program
 			DesktopSpecialAction.ToggleNativePlaylist,
 			DesktopInputPolicy.ResolveSpecialAction(false, false, false,
 				false, false, false, false, false, true));
+		AssertEqual("volume wins when its bounds overlap a media control",
+			DesktopClickRoute.SpecialControl,
+			DesktopInputPolicy.ResolveDesktopClickRoute(
+				DesktopSpecialAction.ShowVolume, hasMediaControl: true,
+				hasLyricTimestamp: false, hasProgressControl: false,
+				hasGenericControl: true));
+		AssertEqual("playback mode wins when its bounds overlap a media control",
+			DesktopClickRoute.SpecialControl,
+			DesktopInputPolicy.ResolveDesktopClickRoute(
+				DesktopSpecialAction.ShowPlaybackModes, hasMediaControl: true,
+				hasLyricTimestamp: false, hasProgressControl: false,
+				hasGenericControl: true));
 
 		Rectangle goodQualityBounds = new Rectangle(1719, 969, 39, 24);
 		Rectangle staleQualityBounds = new Rectangle(1731, 1058, 39, 24);
@@ -160,6 +172,18 @@ internal static class Program
 		AssertTrue("only the active player control group supplies timeline labels",
 			activeTimes.Length == 2 && activeTimes[0].Bounds.Top < work.Bottom &&
 			activeTimes[1].Bounds.Top < work.Bottom);
+
+		AccessibleNodeSnapshot popupButton = new AccessibleNodeSnapshot(
+			"顺序播放", "顺序播放", "", 43, false, 3,
+			new Rectangle(1380, 700, 120, 36));
+		AccessibleControlSurface popupSurface = new AccessibleControlSurface(
+			new IntPtr(2), new Rectangle(1340, 650, 240, 260),
+			new AccessibleTreeSnapshot(new[] { popupButton }));
+		AssertTrue("popup clicks resolve against the popup's own control tree",
+			AccessibleSurfaceRouter.TryGetControlTargetAtPoint(
+				new Point(1440, 718), new[] { popupSurface }, out IntPtr popupWindow,
+				out AccessibleNodeSnapshot popupTarget) &&
+				popupWindow == new IntPtr(2) && popupTarget.Name == "顺序播放");
 
 		if (failures != 0)
 		{
