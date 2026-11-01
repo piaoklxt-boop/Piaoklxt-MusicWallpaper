@@ -2134,21 +2134,22 @@ internal sealed class WallpaperContext : ApplicationContext
 						}
 						string[] playbackModes =
 						{
-							"随机播放", "顺序播放", "单曲循环", "列表循环"
+							"随机播放", "顺序播放", "单曲循环", "列表循环",
+							"雷达播放", "Radar play", "Shuffle", "Sequential play",
+							"Single loop", "List loop"
 						};
-						for (int modeIndex = 0; modeIndex < playbackModes.Length; modeIndex++)
+						if (snapshot.TryGetUnambiguousControlTarget(sourceBounds,
+							out AccessibleNodeSnapshot playbackTarget, playbackModes))
 						{
-							if (snapshot.TryFindVisibleControl(playbackModes[modeIndex],
-								AllAccessibleSpace,
-								out var playbackBounds))
-							{
-								currentPlaybackMode = playbackModes[modeIndex];
-								playbackBounds.Offset(visibleArea.Left - sourceRect.Left,
-									visibleArea.Top - sourceRect.Top);
-								playbackModeControlAreas = new[] { playbackBounds };
-								break;
-							}
+							currentPlaybackMode = string.IsNullOrWhiteSpace(
+								playbackTarget.Description) ? playbackTarget.Name :
+								playbackTarget.Description;
+							Rectangle playbackBounds = playbackTarget.Bounds;
+							playbackBounds.Offset(visibleArea.Left - sourceRect.Left,
+								visibleArea.Top - sourceRect.Top);
+							playbackModeControlAreas = new[] { playbackBounds };
 						}
+						else playbackModeControlAreas = new Rectangle[0];
 						if (snapshot.TryGetControlTarget(sourceBounds,
 							out AccessibleNodeSnapshot commentTarget,
 							"评论", "Comments"))

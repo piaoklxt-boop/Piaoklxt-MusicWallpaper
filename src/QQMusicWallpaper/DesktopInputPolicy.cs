@@ -202,6 +202,38 @@ internal sealed class AccessibleTreeSnapshot
 		return found;
 	}
 
+	public bool TryGetUnambiguousControlTarget(Rectangle preferredArea,
+		out AccessibleNodeSnapshot target, params string[] descriptions)
+	{
+		int bestScore = int.MinValue;
+		long bestArea = long.MaxValue;
+		target = default;
+		bool found = false;
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if (node.Bounds.Width <= 0 || node.Bounds.Height <= 0) continue;
+			int matchScore = GetSemanticMatchScore(node, descriptions);
+			if (matchScore == 0 || HasConflictingSemanticAtSameBounds(index,
+				descriptions)) continue;
+			int score = matchScore;
+			if (!string.IsNullOrWhiteSpace(node.Action)) score += 100;
+			if (preferredArea.Contains(Center(node.Bounds))) score += 50;
+			if (!node.Hidden) score += 10;
+			long area = (long)node.Bounds.Width * node.Bounds.Height;
+			if (!found || score > bestScore ||
+				score == bestScore && node.Depth > target.Depth ||
+				score == bestScore && node.Depth == target.Depth && area < bestArea)
+			{
+				found = true;
+				bestScore = score;
+				bestArea = area;
+				target = node;
+			}
+		}
+		return found;
+	}
+
 	public bool TryGetControlTargetAtPoint(Point point,
 		out AccessibleNodeSnapshot target)
 	{
@@ -256,6 +288,27 @@ internal sealed class AccessibleTreeSnapshot
 				StringComparison.Ordinal)) score = Math.Max(score, 200);
 		}
 		return score;
+	}
+
+	private bool HasConflictingSemanticAtSameBounds(int nodeIndex,
+		string[] descriptions)
+	{
+		AccessibleNodeSnapshot node = nodes[nodeIndex];
+		string semantic = GetSemanticLabel(node);
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			if (index == nodeIndex || nodes[index].Bounds != node.Bounds ||
+				GetSemanticMatchScore(nodes[index], descriptions) == 0) continue;
+			if (!string.Equals(semantic, GetSemanticLabel(nodes[index]),
+				StringComparison.Ordinal)) return true;
+		}
+		return false;
+	}
+
+	private static string GetSemanticLabel(AccessibleNodeSnapshot node)
+	{
+		return string.IsNullOrWhiteSpace(node.Description) ? node.Name :
+			node.Description;
 	}
 
 	private static bool Matches(AccessibleNodeSnapshot node, string description)

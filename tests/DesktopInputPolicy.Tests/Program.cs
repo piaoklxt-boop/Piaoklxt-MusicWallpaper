@@ -185,6 +185,28 @@ internal static class Program
 				out AccessibleNodeSnapshot popupTarget) &&
 				popupWindow == new IntPtr(2) && popupTarget.Name == "顺序播放");
 
+		Rectangle popupModeBounds = new Rectangle(-1140, 957, 41, 35);
+		Rectangle launcherBounds = new Rectangle(-1250, 969, 41, 35);
+		AccessibleTreeSnapshot playbackSnapshot = new AccessibleTreeSnapshot(new[]
+		{
+			new AccessibleNodeSnapshot("随机播放", "随机播放", "", 43, false, 7,
+				popupModeBounds),
+			new AccessibleNodeSnapshot("顺序播放", "顺序播放", "", 43, false, 7,
+				popupModeBounds),
+			new AccessibleNodeSnapshot("单曲循环", "单曲循环", "", 43, false, 7,
+				popupModeBounds),
+			new AccessibleNodeSnapshot("列表循环", "列表循环", "", 43, false, 7,
+				popupModeBounds),
+			new AccessibleNodeSnapshot("随机播放", "随机播放", "", 43, false, 6,
+				launcherBounds)
+		});
+		AssertTrue("shared popup choices never replace the playback-mode launcher",
+			playbackSnapshot.TryGetUnambiguousControlTarget(
+				new Rectangle(-2076, 0, 1920, 1032),
+				out AccessibleNodeSnapshot playbackLauncher, "随机播放", "顺序播放",
+				"单曲循环", "列表循环") &&
+				playbackLauncher.Bounds == launcherBounds);
+
 		AccessibleControlSurface commentSurface = new AccessibleControlSurface(
 			new IntPtr(3), new Rectangle(1430, 44, 478, 943),
 			new AccessibleTreeSnapshot(Array.Empty<AccessibleNodeSnapshot>()));
