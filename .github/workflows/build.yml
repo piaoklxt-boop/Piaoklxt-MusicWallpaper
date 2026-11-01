@@ -14,17 +14,50 @@ jobs:
         with:
           dotnet-version: '10.0.x'
       - uses: NuGet/setup-nuget@v2
+      - name: Desktop input and playback-mode regressions
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force .\artifacts\test-logs | Out-Null
+          dotnet build .\tests\DesktopInputPolicy.Tests\DesktopInputPolicy.Tests.csproj -c Release -o .\artifacts\tests\policy '-bl:artifacts\test-logs\policy-{}.binlog'
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop input regression build failed.' }
+          dotnet .\artifacts\tests\policy\DesktopInputPolicy.Tests.dll
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop input regressions failed.' }
+          .\scripts\test-playback-mode-command.ps1
+      - name: Mouse hook watchdog regressions
+        shell: powershell
+        run: |
+          dotnet build .\tests\MouseHookWatchdog.Tests\MouseHookWatchdog.Tests.csproj -c Release -o .\artifacts\tests\watchdog '-bl:artifacts\test-logs\watchdog-{}.binlog'
+          if ($LASTEXITCODE -ne 0) { throw 'Mouse hook watchdog regression build failed.' }
+          dotnet .\artifacts\tests\watchdog\MouseHookWatchdog.Tests.dll
+          if ($LASTEXITCODE -ne 0) { throw 'Mouse hook watchdog regressions failed.' }
+      - name: Controller integration regressions
+        shell: powershell
+        run: |
+          dotnet build .\tests\ControllerRegression.Tests\ControllerRegression.Tests.csproj -c Release --artifacts-path .\artifacts\controller-regressions '-bl:artifacts\test-logs\controller-regressions-{}.binlog'
+          if ($LASTEXITCODE -ne 0) { throw 'Controller regression build failed.' }
+          & .\artifacts\controller-regressions\bin\ControllerRegression.Tests\release\ControllerRegression.Tests.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Controller integration regressions failed.' }
       - name: Build portable package
+        id: package
         shell: powershell
         run: .\scripts\build-release.ps1
       - name: Portable startup smoke test
         shell: powershell
+        env:
+          PORTABLE_DIR: ${{ steps.package.outputs.portable_dir }}
         run: |
-          $app = Start-Process .\artifacts\Piaoklxt-MusicWallpaper-v1.2.0-win-x64\Piaoklxt-MusicWallpaper.exe -PassThru
+          $app = Start-Process (Join-Path $env:PORTABLE_DIR 'Piaoklxt-MusicWallpaper.exe') -WindowStyle Hidden -PassThru
           Start-Sleep -Seconds 5
           if ($app.HasExited) { throw "Controller exited during startup with code $($app.ExitCode)." }
           Stop-Process -Id $app.Id -Force
       - uses: actions/upload-artifact@v4
         with:
           name: Piaoklxt-MusicWallpaper-win-x64
-          path: artifacts/Piaoklxt-MusicWallpaper-v1.2.0-win-x64.zip
+          path: ${{ steps.package.outputs.zip_path }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-and-test-logs
+          path: |
+            artifacts/build-logs/*.binlog
+            artifacts/test-logs/*.binlog
