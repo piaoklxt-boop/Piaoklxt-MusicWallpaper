@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.2.1 - Unreleased
+
+### 修复
+
+- 评论入口的命中与调用统一选择当前播放栏，避免重复控件树仍把点击发往旧播放栏。
+- 重复维护未移动的源窗口时保留控件缓存刷新计时；实际移动或恢复窗口时仍立即使缓存失效。
+- 鼠标钩子已报告当前位置时，不再因维护轮询延迟而误判需要重装。其他回调缺口仍保留恢复机制；日志明确区分观测与未确认的超时原因。
+
+### 验证与诊断
+
+- 新增使用测试进程自有屏幕外窗口的控制器回归，验证真实消息投递和窗口维护逻辑；测试不操作用户的 QQ 音乐或桌面。
+- 新增鼠标钩子监测回归，并在 CI 打包前执行全部回归和播放模式契约检查。
+- `--diagnostics` 可每 30 秒记录本地输入回调计数、耗时及控件扫描次数，不记录光标坐标，不上传数据。
+
+### English
+
+- Resolve comment hit testing and invocation through the same active player-bar selector.
+- Preserve the accessibility refresh deadline during unchanged source maintenance, while invalidating after real movement or recovery.
+- Avoid reinstalling a healthy mouse hook when a delayed poll observes an already-delivered cursor position. Other callback gaps retain recovery and neutral diagnostic wording.
+- Add controller message-dispatch and source-maintenance regressions using process-owned offscreen windows, plus watchdog regressions, and run all suites before CI packaging.
+- Add optional local `--diagnostics` summaries without recording cursor coordinates or sending telemetry.
+
 ## 1.2.0 - 2026-11-01
 
 ### 中文更新说明
