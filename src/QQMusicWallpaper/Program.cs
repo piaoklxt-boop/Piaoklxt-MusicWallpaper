@@ -13,7 +13,8 @@ internal static class Program
 	[STAThread]
 	private static void Main(string[] args)
 	{
-		RuntimeLog.Write("Controller entry. Args=" + string.Join(" ", args));
+		RuntimeLog.Write("Controller entry. Version=" + AppInfo.Version +
+			" Args=" + string.Join(" ", args));
 		if (args.Length > 0 && args[0] == "--theme-worker")
 		{
 			QQMusicWallpaperThemeSync.Program.RunWorker(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "theme-sync"));

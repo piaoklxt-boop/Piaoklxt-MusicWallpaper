@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net40</TargetFramework>
+    <UseWindowsForms>True</UseWindowsForms>
+    <LangVersion>14.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <StartupObject>ControllerRegression.Tests.Program</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\QQMusicWallpaper\*.cs" Link="Controller\%(Filename)%(Extension)" />
+    <Reference Include="Accessibility" />
+  </ItemGroup>
+</Project>

@@ -157,6 +157,17 @@ internal sealed class WallpaperContext : ApplicationContext
 	private int mouseHookGeneration;
 
 	private long lastMouseHookEventTicks;
+	private long lastMouseHookPoint;
+	private int hasMouseHookPoint;
+	private long mouseHookCallbackCount;
+	private long lastMouseHookDurationTicks;
+	private long maxMouseHookDurationTicks;
+	private int activeMouseHookCallbacks;
+	private volatile int mouseHookStage;
+	private long accessibilityCaptureCount;
+	private readonly bool diagnosticMode = Array.IndexOf(
+		Environment.GetCommandLineArgs(), "--diagnostics") >= 0;
+	private DateTime nextDiagnosticSummary = DateTime.UtcNow.AddSeconds(30);
 
 	private Native.POINT lastHookWatchdogPoint;
 
@@ -676,6 +687,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		if (embedded)
 		{
 			WatchMouseHook();
+			LogDiagnosticSummary();
 			PruneQQPopupSurfaces();
 			if (!interactionActive) RefreshInteractiveAreasIfDue();
 			if (Native.IsIconic(qqWindow))
@@ -1179,15 +1191,59 @@ internal sealed class WallpaperContext : ApplicationContext
 	private IntPtr MouseHookCallback(int code, IntPtr wParam, IntPtr lParam)
 	{
 		Interlocked.Exchange(ref lastMouseHookEventTicks, DateTime.UtcNow.Ticks);
+		long started = Stopwatch.GetTimestamp();
+		Interlocked.Increment(ref mouseHookCallbackCount);
+		Interlocked.Increment(ref activeMouseHookCallbacks);
+		mouseHookStage = 1;
+		try
+		{
+			if (code == 0 && lParam != IntPtr.Zero)
+			{
+				long point = PackMousePoint(Marshal.ReadInt32(lParam),
+					Marshal.ReadInt32(lParam, sizeof(int)));
+				Interlocked.Exchange(ref lastMouseHookPoint, point);
+				Interlocked.Exchange(ref hasMouseHookPoint, 1);
+			}
+			return ProcessMouseHookEvent(code, wParam, lParam);
+		}
+		finally
+		{
+			long elapsed = Stopwatch.GetTimestamp() - started;
+			Interlocked.Exchange(ref lastMouseHookDurationTicks, elapsed);
+			long maximum;
+			do
+			{
+				maximum = Interlocked.Read(ref maxMouseHookDurationTicks);
+				if (elapsed <= maximum) break;
+			} while (Interlocked.CompareExchange(ref maxMouseHookDurationTicks,
+				elapsed, maximum) != maximum);
+			if (Interlocked.Decrement(ref activeMouseHookCallbacks) == 0)
+				mouseHookStage = 0;
+		}
+	}
+
+	private static long PackMousePoint(int x, int y)
+	{
+		return ((long)(uint)x << 32) | (uint)y;
+	}
+
+	private IntPtr CallNextMouseHook(int code, IntPtr wParam, IntPtr lParam)
+	{
+		mouseHookStage = 3;
+		return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+	}
+
+	private IntPtr ProcessMouseHookEvent(int code, IntPtr wParam, IntPtr lParam)
+	{
 		if (code < 0 || !enabled || suspended || !embedded || !Native.IsWindow(qqWindow))
 		{
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		uint num = (uint)wParam.ToInt64();
 		if (num != WmMouseMove && num != WmLButtonDown && num != WmLButtonUp &&
 			num != WmRButtonDown && num != WmRButtonUp && num != WmMouseWheel)
 		{
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		Native.MSLLHOOKSTRUCT mSLLHOOKSTRUCT = (Native.MSLLHOOKSTRUCT)Marshal.PtrToStructure(lParam, typeof(Native.MSLLHOOKSTRUCT));
 		Point point = new Point(mSLLHOOKSTRUCT.pt.X, mSLLHOOKSTRUCT.pt.Y);
@@ -1198,7 +1254,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			interactionActive = false;
 			progressSeekActive = false;
 			interactionStarted = DateTime.MinValue;
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		if (progressSeekActive && (num == WmMouseMove || num == WmLButtonUp))
 		{
@@ -1221,7 +1277,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			}
 			return DesktopInputPolicy.ShouldConsumeProgressPointerEvent(num)
 				? new IntPtr(1)
-				: Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+				: CallNextMouseHook(code, wParam, lParam);
 		}
 		if (interactionActive && (num == WmMouseMove || num == WmLButtonUp))
 		{
@@ -1238,11 +1294,11 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 		if (!bounds.Contains(point))
 		{
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		if (num == WmLButtonUp || num == WmRButtonUp)
 		{
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		if (point.Y >= workingArea.Bottom)
 		{
@@ -1250,7 +1306,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			{
 				taskbarClickUntil = DateTime.UtcNow.AddSeconds(2.0);
 			}
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		IntPtr ancestor = Native.GetAncestor(Native.WindowFromPoint(new Native.POINT
 		{
@@ -1261,22 +1317,22 @@ internal sealed class WallpaperContext : ApplicationContext
 		bool flag = !num2 && IsQQMusicWindow(ancestor);
 		if (!num2 && !flag)
 		{
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		if (num == 512)
 		{
 			if (flag)
 			{
-				return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+				return CallNextMouseHook(code, wParam, lParam);
 			}
 			DateTime utcNow = DateTime.UtcNow;
 			if ((utcNow - lastHoverForwarded).TotalMilliseconds < 25.0)
 			{
-				return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+				return CallNextMouseHook(code, wParam, lParam);
 			}
 			lastHoverForwarded = utcNow;
 			ForwardHoverToSource(point, workingArea);
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		if (flag)
 		{
@@ -1286,14 +1342,16 @@ internal sealed class WallpaperContext : ApplicationContext
 				// it owns the foreground. MaintainWallpaper parks it again after the user
 				// switches away instead of hiding it after a single click.
 			}
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
+		mouseHookStage = 2;
 		IntPtr intPtr2 = FindDesktopListView();
 		if (intPtr2 == IntPtr.Zero || IsDesktopRenameActive(intPtr2) ||
 			DesktopInputPolicy.ShouldCheckDesktopIcon(num) && IsDesktopIconAt(intPtr2, point))
 		{
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
+		mouseHookStage = 1;
 		switch (num)
 		{
 		case 513u:
@@ -1314,7 +1372,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			{
 				if (DesktopInputPolicy.ShouldDismissTransientUi(num, num2,
 					isDesktopIcon: false)) DismissTransientQQUi();
-				return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+				return CallNextMouseHook(code, wParam, lParam);
 			}
 			if (clickRoute == DesktopClickRoute.LyricTimestamp)
 			{
@@ -1390,7 +1448,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			return new IntPtr(1);
 		}
 		default:
-			return Native.CallNextHookEx(mouseHook, code, wParam, lParam);
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 	}
 
@@ -1666,7 +1724,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		Rectangle sourceBounds = Rectangle.FromLTRB(rect.Left, rect.Top,
 			rect.Right, rect.Bottom);
 		AccessibleTreeSnapshot snapshot = qqAccessibilitySnapshot;
-		if (!snapshot.TryGetControlTarget(sourceBounds,
+		if (!TryGetQQControlTarget(snapshot, sourceBounds,
 			out AccessibleNodeSnapshot target, descriptions)) return false;
 		Point actionPoint = GetControlCenter(target);
 		if (!sourceBounds.Contains(actionPoint))
@@ -1675,6 +1733,22 @@ internal sealed class WallpaperContext : ApplicationContext
 			if (!sourceBounds.Contains(actionPoint)) return false;
 		}
 		return PostQQControlClick(actionPoint);
+	}
+
+	private static bool TryGetQQControlTarget(AccessibleTreeSnapshot snapshot,
+		Rectangle sourceBounds, out AccessibleNodeSnapshot target,
+		params string[] descriptions)
+	{
+		// Use the same active launcher for hit testing and actual invocation.
+		// QQ Music can retain a deeper, stale comment node in an older player bar.
+		foreach (string description in descriptions)
+		{
+			if (description == "评论" || string.Equals(description, "Comments",
+				StringComparison.OrdinalIgnoreCase))
+				return snapshot.TryGetBottommostControlTarget(sourceBounds,
+					out target, descriptions);
+		}
+		return snapshot.TryGetControlTarget(sourceBounds, out target, descriptions);
 	}
 
 	private static Point GetControlCenter(AccessibleNodeSnapshot target)
@@ -2104,6 +2178,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			try
 			{
+				Interlocked.Increment(ref accessibilityCaptureCount);
 				AccessibleTreeSnapshot snapshot =
 					QQMusicAccessibility.CaptureSnapshot(source);
 				Rectangle[] areas = snapshot.GetInteractiveBounds(AllAccessibleSpace,
@@ -2150,7 +2225,7 @@ internal sealed class WallpaperContext : ApplicationContext
 							playbackModeControlAreas = new[] { playbackBounds };
 						}
 						else playbackModeControlAreas = new Rectangle[0];
-						if (snapshot.TryGetBottommostControlTarget(sourceBounds,
+						if (TryGetQQControlTarget(snapshot, sourceBounds,
 							out AccessibleNodeSnapshot commentTarget,
 							"评论", "Comments"))
 						{
@@ -2596,6 +2671,11 @@ internal sealed class WallpaperContext : ApplicationContext
 			long wallpaperExStyle = (originalExStyle &
 				~(WsExNoRedirectionBitmap | WsExToolWindow | WsExNoActivate)) |
 				WsExAppWindow;
+			bool capturedBounds = Native.GetWindowRect(qqWindow, out var previousRect);
+			bool sourceRecovered = sourcePresented || Native.IsIconic(qqWindow) ||
+				!Native.IsWindowVisible(qqWindow) ||
+				Native.GetWindowLongPtr(qqWindow, GwlStyle).ToInt64() != wallpaperStyle ||
+				Native.GetWindowLongPtr(qqWindow, GwlExStyle).ToInt64() != wallpaperExStyle;
 			Native.SetWindowLongPtr(qqWindow, GwlStyle, new IntPtr(wallpaperStyle));
 			Native.SetWindowLongPtr(qqWindow, GwlExStyle, new IntPtr(wallpaperExStyle));
 			// SW_SHOWNOACTIVATE keeps WGC alive without returning the user to QQ Music.
@@ -2605,10 +2685,17 @@ internal sealed class WallpaperContext : ApplicationContext
 			// desktop pixel and its icon layer can no longer be covered by the source.
 			bool positioned = Native.SetWindowPos(qqWindow, new IntPtr(1), bounds.Left - bounds.Width - 256, bounds.Top,
 				bounds.Width, bounds.Height, SwpFrameChanged | SwpShowWindow | 16u);
-			Native.GetWindowRect(qqWindow, out var rect);
+			bool capturedNewBounds = Native.GetWindowRect(qqWindow, out var rect);
 			sourcePresented = false;
-			if (positioned) nextAccessibilityRefresh = DateTime.MinValue;
-			return positioned && rect.Left < bounds.Left &&
+			bool sourceMoved = !capturedBounds || !capturedNewBounds ||
+				previousRect.Left != rect.Left || previousRect.Top != rect.Top ||
+				previousRect.Right != rect.Right || previousRect.Bottom != rect.Bottom;
+			// A successful no-op SetWindowPos is routine maintenance, not a cache
+			// invalidation. Preserve the idle refresh deadline until geometry or
+			// window state actually changes.
+			if (positioned && (sourceMoved || sourceRecovered))
+				nextAccessibilityRefresh = DateTime.MinValue;
+			return positioned && capturedNewBounds && rect.Left < bounds.Left &&
 				(rect.Right - rect.Left) == bounds.Width && (rect.Bottom - rect.Top) == bounds.Height;
 		}
 		return false;
@@ -2858,23 +2945,53 @@ internal sealed class WallpaperContext : ApplicationContext
 			}
 			lastHookWatchdogPoint = point;
 			long num = Interlocked.Read(ref lastMouseHookEventTicks);
-			if (num != 0L && DateTime.UtcNow.Ticks - num > TimeSpan.FromSeconds(2.0).Ticks)
+			bool hasPoint = Interlocked.CompareExchange(ref hasMouseHookPoint, 0, 0) != 0;
+			bool matchesCallback = hasPoint && Interlocked.Read(ref lastMouseHookPoint) ==
+				PackMousePoint(point.X, point.Y);
+			long callbackAge = DateTime.UtcNow.Ticks - num;
+			if (num != 0L && MouseHookWatchdog.ShouldRestart(true, hasPoint,
+				matchesCallback, callbackAge))
 			{
 				if (hookReinstallWindowStart == DateTime.MinValue || (DateTime.UtcNow - hookReinstallWindowStart).TotalMinutes > 10.0)
 				{
 					hookReinstallWindowStart = DateTime.UtcNow;
 					hookReinstallCount = 0;
-					Log("Mouse hook watchdog detected lost input events; reinstalling hook. (new 10-minute window)");
+					Log("Mouse hook callback-gap recovery: new 10-minute window.");
 				}
 				hookReinstallCount++;
-				Log("Mouse hook watchdog detected lost input events; reinstalling hook. (count=" + hookReinstallCount + " in 10 min)");
+				Log("Mouse hook callback gap; reinstalling hook. count=" + hookReinstallCount +
+					" in 10 min; ageMs=" + (callbackAge / TimeSpan.TicksPerMillisecond) +
+					"; cursorMatchesLastCallback=" + matchesCallback + "; " + GetInputDiagnostics());
 				if (hookReinstallCount == 3)
 				{
-					Log("WARN: the mouse hook was dropped 3 times within 10 minutes. The hook callback is likely exceeding LowLevelHooksTimeout (default 300 ms); check for a hung QQ Music window or a slow IsDesktopIconAt/AlignSourceToWorkingArea path.");
+					Log("WARN: repeated mouse callback gaps. Callback duration includes downstream hooks; " +
+						"a gap alone does not establish a hook timeout or removal.");
 				}
 				RestartMouseHook();
 			}
 		}
+	}
+
+	private string GetInputDiagnostics()
+	{
+		int stage = mouseHookStage;
+		string stageName = stage == 3 ? "downstream-hook" :
+			stage == 2 ? "desktop-hit-test" : stage == 1 ? "routing" : "idle";
+		return "callbacks=" + Interlocked.Read(ref mouseHookCallbackCount) +
+			"; active=" + Interlocked.CompareExchange(ref activeMouseHookCallbacks, 0, 0) +
+			"; stage=" + stageName +
+			"; lastCallbackMsIncludingChain=" +
+				(Interlocked.Read(ref lastMouseHookDurationTicks) * 1000L / Stopwatch.Frequency) +
+			"; maxCallbackMsIncludingChain=" +
+				(Interlocked.Read(ref maxMouseHookDurationTicks) * 1000L / Stopwatch.Frequency) +
+			"; accessibilityScans=" + Interlocked.Read(ref accessibilityCaptureCount);
+	}
+
+	private void LogDiagnosticSummary()
+	{
+		if (!diagnosticMode || DateTime.UtcNow < nextDiagnosticSummary) return;
+		nextDiagnosticSummary = DateTime.UtcNow.AddSeconds(30);
+		Log("Input diagnostics: " + GetInputDiagnostics());
 	}
 
 	private void Exit()
