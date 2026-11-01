@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$controller = Get-Content -LiteralPath (Join-Path $repo 'src\QQMusicWallpaper\WallpaperContext.cs') -Raw
-$overlay = Get-Content -LiteralPath (Join-Path $repo 'src\QQMusicWallpaper\PlaybackModeOverlayForm.cs') -Raw
+$controller = (Get-Content -LiteralPath (Join-Path $repo 'src\QQMusicWallpaper\WallpaperContext.cs') -Raw -Encoding UTF8) -replace "`r`n?", "`n"
+$overlay = (Get-Content -LiteralPath (Join-Path $repo 'src\QQMusicWallpaper\PlaybackModeOverlayForm.cs') -Raw -Encoding UTF8) -replace "`r`n?", "`n"
 
 $requiredControllerFragments = @(
     'case "单曲循环": modeValue = 1;',
@@ -15,12 +15,12 @@ foreach ($fragment in $requiredControllerFragments) {
         throw "Missing controller contract: $fragment"
     }
 }
-if ($controller.Contains('new ProcessStartInfo(qqPath,' + [Environment]::NewLine + "`t`t`t`t`t`"/playmode`"") -or
+if ($controller.Contains('new ProcessStartInfo(qqPath,' + "`n`t`t`t`t`t`"/playmode`"") -or
     $controller -match 'ProcessStartInfo\(qqPath,\s*"/playmode"\s*\)') {
     throw 'The parameterless /playmode regression is present.'
 }
 
-if (-not $controller.Contains('case DesktopSpecialAction.ShowPlaybackModes:' + [Environment]::NewLine + "`t`t`t`tQueueShowPlaybackModes();")) {
+if (-not $controller.Contains('case DesktopSpecialAction.ShowPlaybackModes:' + "`n`t`t`t`tQueueShowPlaybackModes();")) {
     throw 'Playback mode button is not routed to the control-based mode picker.'
 }
 if (-not $overlay.Contains('new Button')) {

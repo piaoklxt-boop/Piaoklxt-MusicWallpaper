@@ -15,7 +15,7 @@ jobs:
           dotnet-version: '10.0.x'
       - uses: NuGet/setup-nuget@v2
       - name: Desktop input and playback-mode regressions
-        shell: powershell
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force .\artifacts\test-logs | Out-Null
           dotnet build .\tests\DesktopInputPolicy.Tests\DesktopInputPolicy.Tests.csproj -c Release -o .\artifacts\tests\policy '-bl:artifacts\test-logs\policy-{}.binlog'
@@ -24,28 +24,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Desktop input regressions failed.' }
           .\scripts\test-playback-mode-command.ps1
       - name: Mouse hook watchdog regressions
-        shell: powershell
+        shell: pwsh
         run: |
           dotnet build .\tests\MouseHookWatchdog.Tests\MouseHookWatchdog.Tests.csproj -c Release -o .\artifacts\tests\watchdog '-bl:artifacts\test-logs\watchdog-{}.binlog'
           if ($LASTEXITCODE -ne 0) { throw 'Mouse hook watchdog regression build failed.' }
           dotnet .\artifacts\tests\watchdog\MouseHookWatchdog.Tests.dll
           if ($LASTEXITCODE -ne 0) { throw 'Mouse hook watchdog regressions failed.' }
       - name: Semantic click routing regressions
-        shell: powershell
+        shell: pwsh
         run: |
           dotnet build .\tests\SemanticClickResolver.Tests\SemanticClickResolver.Tests.csproj -c Release -o .\artifacts\tests\semantic-click '-bl:artifacts\test-logs\semantic-click-{}.binlog'
           if ($LASTEXITCODE -ne 0) { throw 'Semantic click regression build failed.' }
           dotnet .\artifacts\tests\semantic-click\SemanticClickResolver.Tests.dll
           if ($LASTEXITCODE -ne 0) { throw 'Semantic click routing regressions failed.' }
       - name: Progress preview regressions
-        shell: powershell
+        shell: pwsh
         run: |
           dotnet build .\tests\ProgressPreview.Tests\ProgressPreview.Tests.csproj -c Release -o .\artifacts\tests\progress-preview '-bl:artifacts\test-logs\progress-preview-{}.binlog'
           if ($LASTEXITCODE -ne 0) { throw 'Progress preview regression build failed.' }
           & .\artifacts\tests\progress-preview\ProgressPreview.Tests.exe
           if ($LASTEXITCODE -ne 0) { throw 'Progress preview regressions failed.' }
       - name: Controller integration regressions
-        shell: powershell
+        shell: pwsh
         run: |
           dotnet build .\tests\ControllerRegression.Tests\ControllerRegression.Tests.csproj -c Release --artifacts-path .\artifacts\controller-regressions '-bl:artifacts\test-logs\controller-regressions-{}.binlog'
           if ($LASTEXITCODE -ne 0) { throw 'Controller regression build failed.' }
@@ -53,10 +53,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Controller integration regressions failed.' }
       - name: Build portable package
         id: package
-        shell: powershell
+        shell: pwsh
         run: .\scripts\build-release.ps1
       - name: Portable startup smoke test
-        shell: powershell
+        shell: pwsh
         env:
           PORTABLE_DIR: ${{ steps.package.outputs.portable_dir }}
         run: |

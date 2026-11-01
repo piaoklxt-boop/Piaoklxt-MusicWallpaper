@@ -159,6 +159,13 @@ This is the project record of approaches that failed during development. It cont
 
 ## Release-process mistakes
 
+### CI parsed UTF-8 scripts with a legacy code page
+
+- **Failure:** The playback-mode contract script passed locally but failed to parse in CI around its Chinese mode names.
+- **Why it failed:** The workflow selected Windows PowerShell 5.1, which can read UTF-8 scripts without a BOM using the system ANSI code page. The contract also compared file line endings with the host's newline sequence.
+- **Correction:** Use PowerShell 7 (`pwsh`) consistently in CI, read source text explicitly as UTF-8, and normalize CRLF/LF before exact contract comparisons.
+- **Guardrail:** Run the same contract against UTF-8 fixtures using both LF and CRLF, retaining the positive mode mappings and the negative parameterless-command and coordinate-routing checks.
+
 ### Ad hoc deployment accumulated indistinguishable local binaries
 
 - **Failure:** Many per-commit backups remained beside the active executable, making the installed version ambiguous.
