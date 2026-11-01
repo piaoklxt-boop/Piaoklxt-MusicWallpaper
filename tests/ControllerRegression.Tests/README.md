@@ -7,7 +7,8 @@ It does not run the controller constructor, install a mouse hook, start QQ Music
 or change the desktop/theme. A process-ownership check guards every fixture HWND.
 
 The regressions cover duplicate comment launchers, absent launchers, repeated
-source parking, source movement and hidden-window recovery. Unlike the pure
+source parking (including maximized/minimized original style snapshots), source
+movement and hidden-window recovery. Unlike the pure
 policy suite, they exercise the actual controller call paths that select a
 target and invalidate the accessibility cache. They do not replace live QQ Music
 acceptance testing or prove compatibility with all player versions.

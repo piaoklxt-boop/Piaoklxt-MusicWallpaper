@@ -2672,10 +2672,10 @@ internal sealed class WallpaperContext : ApplicationContext
 				~(WsExNoRedirectionBitmap | WsExToolWindow | WsExNoActivate)) |
 				WsExAppWindow;
 			bool capturedBounds = Native.GetWindowRect(qqWindow, out var previousRect);
+			long previousStyle = Native.GetWindowLongPtr(qqWindow, GwlStyle).ToInt64();
+			long previousExStyle = Native.GetWindowLongPtr(qqWindow, GwlExStyle).ToInt64();
 			bool sourceRecovered = sourcePresented || Native.IsIconic(qqWindow) ||
-				!Native.IsWindowVisible(qqWindow) ||
-				Native.GetWindowLongPtr(qqWindow, GwlStyle).ToInt64() != wallpaperStyle ||
-				Native.GetWindowLongPtr(qqWindow, GwlExStyle).ToInt64() != wallpaperExStyle;
+				!Native.IsWindowVisible(qqWindow);
 			Native.SetWindowLongPtr(qqWindow, GwlStyle, new IntPtr(wallpaperStyle));
 			Native.SetWindowLongPtr(qqWindow, GwlExStyle, new IntPtr(wallpaperExStyle));
 			// SW_SHOWNOACTIVATE keeps WGC alive without returning the user to QQ Music.
@@ -2687,13 +2687,18 @@ internal sealed class WallpaperContext : ApplicationContext
 				bounds.Width, bounds.Height, SwpFrameChanged | SwpShowWindow | 16u);
 			bool capturedNewBounds = Native.GetWindowRect(qqWindow, out var rect);
 			sourcePresented = false;
+			// ShowWindow normalizes dynamic style bits such as WS_MAXIMIZE.
+			// Compare observed states, not the original requested style, or every
+			// maintenance tick would look like another recovery.
+			bool styleChanged = previousStyle != Native.GetWindowLongPtr(qqWindow, GwlStyle).ToInt64() ||
+				previousExStyle != Native.GetWindowLongPtr(qqWindow, GwlExStyle).ToInt64();
 			bool sourceMoved = !capturedBounds || !capturedNewBounds ||
 				previousRect.Left != rect.Left || previousRect.Top != rect.Top ||
 				previousRect.Right != rect.Right || previousRect.Bottom != rect.Bottom;
 			// A successful no-op SetWindowPos is routine maintenance, not a cache
 			// invalidation. Preserve the idle refresh deadline until geometry or
 			// window state actually changes.
-			if (positioned && (sourceMoved || sourceRecovered))
+			if (positioned && (sourceMoved || sourceRecovered || styleChanged))
 				nextAccessibilityRefresh = DateTime.MinValue;
 			return positioned && capturedNewBounds && rect.Left < bounds.Left &&
 				(rect.Right - rect.Left) == bounds.Width && (rect.Bottom - rect.Top) == bounds.Height;

@@ -22,6 +22,10 @@ internal static class Program
         Run("missing comment controls do not dispatch a click", MissingCommentDoesNotClick);
         Run("unchanged source parking preserves the pending refresh deadline",
             RepeatedParkingPreservesRefreshDeadline);
+        Run("maximized original style does not repeatedly invalidate parked controls",
+            () => DynamicStyleDoesNotInvalidateCache(0x01000000L));
+        Run("minimized original style does not repeatedly invalidate parked controls",
+            () => DynamicStyleDoesNotInvalidateCache(0x20000000L));
         Run("source movement invalidates cached control mappings", SourceMovementInvalidatesCache);
         Run("source recovery invalidates cached control mappings", SourceRecoveryInvalidatesCache);
         Console.WriteLine("Controller regressions: " + passed + " passed, " + failed + " failed.");
@@ -93,6 +97,25 @@ internal static class Program
             Assert((bool)Invoke(controller, "KeepSourceMaximizedBehindDesktop"), "Recovery parking failed.");
             Assert((DateTime)GetField(controller, "nextAccessibilityRefresh") == DateTime.MinValue,
                 "Moving the source must invalidate old control mappings.");
+        }
+    }
+
+    private static void DynamicStyleDoesNotInvalidateCache(long originalState)
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            long originalStyle = (long)GetField(controller, "originalStyle") | originalState;
+            SetField(controller, "originalStyle", originalStyle);
+            Assert((bool)Invoke(controller, "KeepSourceMaximizedBehindDesktop"), "Initial parking failed.");
+            long firstStyle = Native.GetWindowLongPtr(source.Handle, -16).ToInt64();
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            SetField(controller, "nextAccessibilityRefresh", deadline);
+            Assert((bool)Invoke(controller, "KeepSourceMaximizedBehindDesktop"), "Repeated parking failed.");
+            long finalStyle = Native.GetWindowLongPtr(source.Handle, -16).ToInt64();
+            Assert((DateTime)GetField(controller, "nextAccessibilityRefresh") == deadline,
+                "A normalized window state cleared the deadline: original=0x" + originalStyle.ToString("X") +
+                ", first=0x" + firstStyle.ToString("X") + ", final=0x" + finalStyle.ToString("X") + ".");
         }
     }
 
