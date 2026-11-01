@@ -5,6 +5,7 @@
 ### 修复
 
 - 桌面进度条拖动时提供即时、鼠标穿透的视觉预览，仍在松手时只提交一次实际跳转。
+- 拖动预览使用细轨道和小滑块，并从轨道周围重建当前皮肤背景，避免固定深色矩形遮挡与双滑块。
 - 评论入口缓存未命中时进行有时限的后台语义核对，通用控件路径也会正确打开评论附件窗口；移动中产生的过期控件树不会发布。
 - 评论入口的命中与调用统一选择当前播放栏，避免重复控件树仍把点击发往旧播放栏。
 - 重复维护未移动的源窗口时保留控件缓存刷新计时；实际移动或恢复窗口时仍立即使缓存失效。
@@ -19,6 +20,7 @@
 ### English
 
 - Show a non-activating, pointer-transparent timeline preview while dragging, while still committing one actual seek on release.
+- Blend the slim preview track and smaller thumb into the current player skin by reconstructing the surrounding background instead of drawing a fixed dark panel.
 - Resolve an initially missed comment click through a bounded semantic probe and cancel stale requests; reject control snapshots captured across source movement.
 - Resolve comment hit testing and invocation through the same active player-bar selector.
 - Preserve the accessibility refresh deadline during unchanged source maintenance, while invalidating after real movement or recovery.

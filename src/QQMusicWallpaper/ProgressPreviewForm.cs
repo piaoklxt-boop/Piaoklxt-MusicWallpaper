@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Threading;
@@ -13,9 +14,14 @@ internal sealed class ProgressPreviewForm : Form
 	private readonly System.Windows.Forms.Timer paintTimer;
 	private int pendingPointerX;
 	private int paintedPointerX;
+	private readonly Func<Rectangle, Bitmap> captureBackdrop;
+	private Bitmap backdrop;
 
-	public ProgressPreviewForm()
+	public ProgressPreviewForm() : this(CaptureBackdrop) { }
+
+	internal ProgressPreviewForm(Func<Rectangle, Bitmap> captureBackdrop)
 	{
+		this.captureBackdrop = captureBackdrop;
 		FormBorderStyle = FormBorderStyle.None;
 		ShowInTaskbar = false;
 		StartPosition = FormStartPosition.Manual;
@@ -24,11 +30,10 @@ internal sealed class ProgressPreviewForm : Form
 		DoubleBuffered = true;
 		TabStop = false;
 		SetStyle(ControlStyles.Selectable, false);
-		BackColor = Color.FromArgb(26, 26, 28);
-		// Cover the old playhead only inside the timeline, leaving the rest of
-		// the player untouched. Layered + transparent also makes hit testing pass
-		// through to the desktop across process/thread boundaries.
-		Opacity = 0.98;
+		BackColor = Color.Magenta;
+		TransparencyKey = BackColor;
+		// Match the surrounding player skin instead of covering it with a dark
+		// rectangle. The color key is only a capture-failure/offscreen fallback.
 		ClientSize = new Size(1, 18);
 		paintTimer = new System.Windows.Forms.Timer { Interval = 16 };
 		paintTimer.Tick += delegate
@@ -63,6 +68,12 @@ internal sealed class ProgressPreviewForm : Form
 			HidePreview();
 			return;
 		}
+		if (!Visible || Bounds != timeline)
+		{
+			if (Visible) Hide();
+			if (backdrop != null) backdrop.Dispose();
+			backdrop = captureBackdrop(timeline);
+		}
 		Bounds = timeline;
 		UpdatePointer(pointerX);
 		paintedPointerX = pointerX;
@@ -84,6 +95,55 @@ internal sealed class ProgressPreviewForm : Form
 		if (IsDisposed) return;
 		paintTimer.Stop();
 		Hide();
+		if (backdrop != null) { backdrop.Dispose(); backdrop = null; }
+	}
+
+	private static Bitmap CaptureBackdrop(Rectangle timeline)
+	{
+		// Sample once before showing, on the UI thread. Never sample on the
+		// mouse hook or per frame, and never keep a screen capture on disk.
+		bool onScreen = false;
+		foreach (Screen screen in Screen.AllScreens)
+			if (screen.Bounds.Contains(timeline)) { onScreen = true; break; }
+		if (!onScreen) return null;
+		var image = new Bitmap(timeline.Width, timeline.Height);
+		try
+		{
+			using (Graphics graphics = Graphics.FromImage(image))
+				graphics.CopyFromScreen(timeline.Location, Point.Empty, timeline.Size);
+			RestoreTrackBackground(image);
+			return image;
+		}
+		catch (Win32Exception) { image.Dispose(); return null; }
+		catch (ArgumentException) { image.Dispose(); return null; }
+	}
+
+	internal static void RestoreTrackBackground(Bitmap image)
+	{
+		// The 18px semantic hit strip includes clean pixels above and below
+		// the native track/thumb. Interpolate those edges column by column to
+		// preserve the album's background gradient and remove the old playhead.
+		if (image.Height < 2) return;
+		for (int x = 0; x < image.Width; x++)
+		{
+			Color top = image.GetPixel(x, 0);
+			Color bottom = image.GetPixel(x, image.Height - 1);
+			for (int y = 1; y < image.Height - 1; y++)
+			{
+				int remainder = image.Height - 1 - y;
+				int divisor = image.Height - 1;
+				image.SetPixel(x, y, Color.FromArgb(
+					(top.R * remainder + bottom.R * y) / divisor,
+					(top.G * remainder + bottom.G * y) / divisor,
+					(top.B * remainder + bottom.B * y) / divisor));
+			}
+		}
+	}
+
+	protected override void OnPaintBackground(PaintEventArgs e)
+	{
+		if (backdrop == null) base.OnPaintBackground(e);
+		else e.Graphics.DrawImageUnscaled(backdrop, Point.Empty);
 	}
 
 	protected override void WndProc(ref Message message)
@@ -109,14 +169,17 @@ internal sealed class ProgressPreviewForm : Form
 		if (width < 2 || height < 2) return;
 		float centerY = height / 2f;
 		float pointerX = Math.Max(0, Math.Min(width - 1, paintedPointerX - Left));
-		e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-		using (var track = new Pen(Color.FromArgb(102, 104, 107), 3f))
-		using (var active = new Pen(Color.FromArgb(49, 194, 124), 3f))
+		e.Graphics.SmoothingMode = backdrop == null ? SmoothingMode.None : SmoothingMode.AntiAlias;
+		bool lightSkin = backdrop != null && backdrop.GetPixel(width / 2, 0).GetBrightness() > 0.6f;
+		Color trackColor = backdrop == null ? Color.FromArgb(102, 104, 107)
+			: Color.FromArgb(65, lightSkin ? Color.Black : Color.White);
+		using (var track = new Pen(trackColor, 2f))
+		using (var active = new Pen(Color.FromArgb(49, 194, 124), 2f))
 		using (var thumb = new SolidBrush(Color.FromArgb(248, 248, 248)))
 		{
 			e.Graphics.DrawLine(track, 0f, centerY, width - 1, centerY);
 			if (pointerX > 0f) e.Graphics.DrawLine(active, 0f, centerY, pointerX, centerY);
-			float diameter = Math.Min(10f, Math.Min(height - 2f, width));
+			float diameter = Math.Min(6f, Math.Min(height - 2f, width));
 			float thumbX = Math.Max(0f, Math.Min(width - diameter, pointerX - diameter / 2f));
 			e.Graphics.FillEllipse(thumb, thumbX, centerY - diameter / 2f, diameter, diameter);
 		}
@@ -124,7 +187,11 @@ internal sealed class ProgressPreviewForm : Form
 
 	protected override void Dispose(bool disposing)
 	{
-		if (disposing) paintTimer.Dispose();
+		if (disposing)
+		{
+			paintTimer.Dispose();
+			if (backdrop != null) { backdrop.Dispose(); backdrop = null; }
+		}
 		base.Dispose(disposing);
 	}
 }
