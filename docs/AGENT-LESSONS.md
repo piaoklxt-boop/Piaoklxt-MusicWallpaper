@@ -1,6 +1,57 @@
-# Agent lessons from the v1.2.0 interaction work
+# Agent lessons from desktop interaction work
 
 This is the project record of approaches that failed during development. It contains no machine-specific diagnostics; each lesson states the observable failure, root cause, durable correction, and regression guard.
+
+## v1.2.1 audit and acceptance corrections
+
+### Hit testing and invocation used different comment selectors
+
+- **Failure:** The repeated-player-bar regression selected the active comment hit region, but actual invocation could still choose the deeper stale control.
+- **Why it failed:** The test covered the bottommost selector in isolation; the production invocation path used a different general selector.
+- **Correction:** Share active-launcher selection between hit testing and dispatch. Carry the selected comment map's snapshot through the queued action so another scan cannot substitute a different execution snapshot.
+- **Guardrail:** `ControllerRegression.Tests` exercises the real controller dispatch against owned offscreen windows, including duplicate and absent launchers. A passing selector-only test is not evidence that its caller uses it.
+
+### Successful source parking repeatedly expired the accessibility cache
+
+- **Failure:** A nominal idle refresh interval was bypassed by the maintenance loop. An initial correction still treated unchanged parking as recovery.
+- **Why it failed:** First, any successful `SetWindowPos` invalidated the cache. Then the check compared the requested original style with the style Windows actually maintained after `ShowWindow`, so normalized maximized state appeared to change every time.
+- **Correction:** Compare observed geometry and styles before and after parking, together with actual hidden/minimized/presented recovery. Preserve the deadline for a successful no-op and discard a scan captured across a geometry change.
+- **Guardrail:** Controller regressions cover repeated parking, original maximized/minimized styles, movement and hidden-window recovery. Runtime scan counts verify the schedule in addition to testing the interval constant.
+
+### A watchdog warning was treated as proof of hook removal
+
+- **Failure:** Repeated recovery logs asserted that the hook had been dropped and suggested a timeout without measuring callback duration.
+- **Why it failed:** A delayed maintenance poll can see movement already delivered by the hook, followed by an old callback timestamp after the cursor stops. The previous predicate treated that healthy sequence as a missed event.
+- **Correction:** Compare the current cursor with the last delivered callback position before recovery. Describe remaining gaps neutrally and collect optional callback timing, active-stage and scan-count diagnostics without writing logs on every hook event.
+- **Guardrail:** `MouseHookWatchdog.Tests` checks delayed-poll suppression, genuine unobserved movement, initial unknown position and timeout boundaries. Passing these cases fixes the demonstrated false positive; it does not prove that every historical gap had the same cause.
+
+### First comment clicks could miss the accessory-window path
+
+- **Failure:** A first comment click could appear inert while subsequent clicks opened the window. The original observation did not establish one exclusive cause.
+- **Why it failed:** The routing audit exposed two gaps: a generic semantic comment hit only posted to the source control, and the specialized hit map could lag behind available controls. Separate publication of hit regions and execution snapshots also allowed mismatched data.
+- **Correction:** Promote an exact active comment hit to the accessory-window lifecycle. Associate its bounds with its snapshot. On a cache miss, retain Explorer's event and perform a bounded asynchronous semantic probe, after transient dismissal has finished. Pass fresh data and request-validity checks through invocation, presentation and retry.
+- **Guardrail:** `SemanticClickResolver.Tests` rejects stale duplicate bars, unrelated controls, expired or superseded clicks, replaced windows and changed geometry. Runtime guards also cancel when the cursor leaves or desktop ownership changes. Keep the full-tree probe off the hook, and include it in scan diagnostics.
+
+### Missing drag feedback was mistaken for a failed seek command
+
+- **Failure:** The user described the timeline as not dragging, although release already reached the requested playback position.
+- **Why it failed:** A successful seek-on-release contract had been treated as a complete drag experience. It provided no visible pending position during the gesture.
+- **Correction:** Separate command delivery from visual feedback. Keep the single seek on release and add a purely visual, non-activating, click-through preview using the timeline captured at gesture start. Coalesce pointer changes on the UI thread while the hook only updates the pending position.
+- **Guardrail:** Preserve the existing seek-policy tests and add `ProgressPreview.Tests` for bounds, pointer feedback, non-activation, input transparency and timer lifetime. Confirm whether a reported drag failure means missing feedback or an incorrect final playback position before changing input dispatch.
+
+### A technically correct preview still looked like an unrelated overlay
+
+- **Failure:** The first preview followed the pointer, but its dark rectangle and oversized thumb looked out of place on the player skin.
+- **Why it failed:** Input and window tests checked behavior but did not assess the preview against the surrounding visual surface.
+- **Correction:** Sample the narrow timeline backdrop once before showing the preview, reconstruct its background around the old track and thumb, and draw a thin rail with a small thumb. Use a transparent color-key fallback when capture is unavailable, with edge rendering that avoids a colored fringe.
+- **Guardrail:** Synthetic light and colored backdrops test old-thumb removal, rail/thumb size, endpoints, capture frequency and fallback rendering. Inspect the rendered examples and obtain appearance acceptance as well as behavioral acceptance. Backdrop reconstruction is a once-per-gesture UI cost, never work for the mouse hook.
+
+### Test totals were too broad a description of acceptance
+
+- **Failure:** Earlier successful policy checks coexisted with production routing defects and unsatisfactory visual feedback.
+- **Why it failed:** Pure policy decisions, real controller methods exercised against test windows, synthetic rendering and live player behavior were treated as interchangeable evidence.
+- **Correction:** Run all five suites and the playback-mode contract script, state what each covers, then validate the changed behavior and appearance in the final candidate. Preserve that candidate's identity through packaging and installation.
+- **Guardrail:** CI executes the five suites before packaging. The controller and preview test READMEs define their offscreen-fixture and synthetic-image limits. Assertion counts and a startup smoke test are not a complete live QQ Music interaction matrix.
 
 ## Scope and validation mistakes
 

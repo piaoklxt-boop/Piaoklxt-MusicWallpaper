@@ -15,28 +15,21 @@ Turn the current QQ Music window into an interactive Windows desktop wallpaper. 
 - A portable x64 package: extract, run, and let the app find or open QQ Music.
 - Automatic color restoration on wallpaper shutdown or application exit.
 
-## What's new in v1.2.0
-
-### Added
-
-- Click or drag the desktop timeline while keeping the real cursor responsive and committing one seek on release.
-- Seek from exposed lyric timestamps and open, scroll, operate, and dismiss QQ Music's native comment window.
-- Operate translation, accompaniment, player style, quality, effects, the more menu, and the playlist through QQ Music's exposed semantic controls.
-- Regression coverage for overlapping controls, popup ownership, wheel routing, progress dragging, and duplicate accessibility trees.
+## What's new in v1.2.1
 
 ### Fixed and improved
 
-- Fixed the oversized play target that covered the timeline, frozen cursor movement while dragging, repeated audible seeks, and missed release targets.
-- Fixed slow or inert comments, accompaniment, quality, effects, player style, more-menu, and playlist surfaces, including wheel events leaking into lyrics.
-- Fixed blank-click dismissal and prevented main-surface cancellation from navigating back to the QQ Music home page.
-- Fixed playback-order launcher selection when menu choices share accessibility bounds; all four modes retain explicit native command values.
-- Fixed stale control mappings after source-window recovery and duplicate player bars that could disable the comment launcher.
+- Show an immediate drag preview with a slim rail, small thumb and background matching the current player skin; still commit one seek on release.
+- Fix comment dispatch selecting an old player bar and recover an initially missed comment click through a bounded semantic probe that cancels stale requests.
+- Preserve the control-cache deadline during unchanged window maintenance while refreshing after real movement or recovery.
+- Reduce mouse-hook recovery caused by delayed polling and add optional local diagnostics.
+- Run five regression suites and playback-mode checks before packaging, including actual window messages and preview rendering.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete history.
 
 ## Download and run
 
-1. Download `Piaoklxt-MusicWallpaper-v1.2.0-win-x64.zip` from [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases).
+1. Download `Piaoklxt-MusicWallpaper-v1.2.1-win-x64.zip` from [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases).
 2. Extract the complete ZIP to any writable folder.
 3. Run `Piaoklxt-MusicWallpaper.exe`.
 
@@ -47,7 +40,7 @@ No compiler, SDK, runtime setup, or manual configuration is required. QQ Music i
 - `Ctrl+Alt+U`: show or hide the desktop wallpaper.
 - Tray icon: toggle wallpaper, restore QQ Music, choose the player path, toggle startup, control theme synchronization, check for updates, view author information, or exit.
 - The desktop volume and playback-order controls use stable wallpaper pop-ups while applying changes to QQ Music in the background.
-- Click or drag the desktop progress bar to seek; exposed lyric timestamps also seek directly. Play, previous, and next prefer QQ Music's exposed control bounds instead of broad coordinate targets.
+- Click or drag the desktop progress bar to seek, with a live preview while dragging and one seek on release; exposed lyric timestamps also seek directly. Play, previous, and next prefer QQ Music's exposed control bounds instead of broad coordinate targets.
 - Clicking comments opens the separate native comment window through the exposed bounds in the background; the QQ Music main player is never moved in front of the desktop.
 - Startup with Windows is enabled on first run and can be disabled from the tray menu.
 
