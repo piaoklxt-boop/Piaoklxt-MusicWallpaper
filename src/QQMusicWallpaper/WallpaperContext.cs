@@ -1341,10 +1341,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				QueueShowVolume();
 				return new IntPtr(1);
 			case DesktopSpecialAction.ShowPlaybackModes:
-				QueueAccessibleControlAction("Playback mode", workingArea,
-					new[] { "随机播放", "顺序播放", "单曲循环", "列表循环",
-						"Radar play", "Shuffle", "Sequential play", "Single loop",
-						"List loop" }, presentPopup: true);
+				QueueShowPlaybackModes();
 				return new IntPtr(1);
 			case DesktopSpecialAction.ShowNativeComments:
 				QueueShowNativeComments(workingArea);

@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Collections.Generic;
 using System.Windows.Forms;
 
 namespace QQMusicWallpaper;
@@ -13,8 +14,9 @@ internal sealed class PlaybackModeOverlayForm : Form
 	};
 
 	private readonly Timer hideTimer;
+	private readonly Dictionary<string, Button> modeButtons =
+		new Dictionary<string, Button>(StringComparer.Ordinal);
 	private string currentMode = "列表循环";
-	private int hotIndex = -1;
 
 	public event Action<string> ModeRequested;
 
@@ -29,22 +31,43 @@ internal sealed class PlaybackModeOverlayForm : Form
 		ClientSize = new Size(144, 184);
 		hideTimer = new Timer { Interval = 3500 };
 		hideTimer.Tick += delegate { hideTimer.Stop(); Hide(); };
-		MouseMove += delegate(object sender, MouseEventArgs e)
+
+		TableLayoutPanel layout = new TableLayoutPanel
 		{
-			int next = Math.Max(0, Math.Min(Modes.Length - 1, (e.Y - 8) / 42));
-			if (next != hotIndex) { hotIndex = next; Invalidate(); }
+			Dock = DockStyle.Fill,
+			ColumnCount = 1,
+			RowCount = Modes.Length,
+			Padding = new Padding(7, 8, 7, 8),
+			BackColor = BackColor
 		};
-		MouseLeave += delegate { hotIndex = -1; Invalidate(); };
-		MouseDown += delegate(object sender, MouseEventArgs e)
+		layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f));
+		for (int index = 0; index < Modes.Length; index++)
 		{
-			if (e.Button != MouseButtons.Left) return;
-			int index = (e.Y - 8) / 42;
-			if (index < 0 || index >= Modes.Length) return;
-			hideTimer.Stop();
-			Hide();
-			Action<string> handler = ModeRequested;
-			if (handler != null) handler(Modes[index]);
-		};
+			layout.RowStyles.Add(new RowStyle(SizeType.Percent, 25f));
+			string mode = Modes[index];
+			Button button = new Button
+			{
+				Dock = DockStyle.Fill,
+				FlatStyle = FlatStyle.Flat,
+				FlatAppearance = { BorderSize = 0 },
+				BackColor = Color.Transparent,
+				ForeColor = Color.FromArgb(38, 38, 42),
+				Font = new Font("Microsoft YaHei UI", 10f, FontStyle.Regular,
+					GraphicsUnit.Point),
+				Text = mode,
+				TextAlign = ContentAlignment.MiddleLeft,
+				Padding = new Padding(18, 0, 0, 0),
+				Margin = Padding.Empty,
+				Tag = mode,
+				TabStop = false,
+				UseVisualStyleBackColor = false
+			};
+			button.FlatAppearance.MouseOverBackColor = Color.FromArgb(238, 238, 241);
+			button.Click += OnModeButtonClick;
+			modeButtons.Add(mode, button);
+			layout.Controls.Add(button, 0, index);
+		}
+		Controls.Add(layout);
 	}
 
 	protected override bool ShowWithoutActivation { get { return true; } }
@@ -62,6 +85,7 @@ internal sealed class PlaybackModeOverlayForm : Form
 	public void ShowModes(Rectangle anchor, string selected)
 	{
 		if (!string.IsNullOrWhiteSpace(selected)) currentMode = selected;
+		UpdateButtonStyles();
 		Rectangle work = Screen.FromPoint(anchor.IsEmpty ? Cursor.Position :
 			new Point(anchor.Left + anchor.Width / 2, anchor.Top)).WorkingArea;
 		int x = anchor.IsEmpty ? work.Left + (work.Width - Width) / 2 :
@@ -70,33 +94,29 @@ internal sealed class PlaybackModeOverlayForm : Form
 		Location = new Point(Math.Max(work.Left + 4, Math.Min(x, work.Right - Width - 4)),
 			Math.Max(work.Top + 4, Math.Min(y, work.Bottom - Height - 4)));
 		ApplyRoundedRegion();
-		Invalidate();
 		if (!Visible) Show();
 		hideTimer.Stop();
 		hideTimer.Start();
 	}
 
-	protected override void OnPaint(PaintEventArgs e)
+	private void OnModeButtonClick(object sender, EventArgs e)
 	{
-		base.OnPaint(e);
-		e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-		using (var font = new Font("Microsoft YaHei UI", 10f, FontStyle.Regular,
-			GraphicsUnit.Point))
-		using (var normal = new SolidBrush(Color.FromArgb(38, 38, 42)))
-		using (var selected = new SolidBrush(Color.FromArgb(211, 44, 91)))
-		using (var hover = new SolidBrush(Color.FromArgb(238, 238, 241)))
-		using (var separator = new Pen(Color.FromArgb(232, 232, 235)))
+		if (!(sender is Button button) || !(button.Tag is string mode)) return;
+		hideTimer.Stop();
+		Hide();
+		Action<string> handler = ModeRequested;
+		if (handler != null) handler(mode);
+	}
+
+	private void UpdateButtonStyles()
+	{
+		foreach (KeyValuePair<string, Button> item in modeButtons)
 		{
-			for (int index = 0; index < Modes.Length; index++)
-			{
-				Rectangle row = new Rectangle(7, 8 + index * 42, Width - 14, 42);
-				if (index == hotIndex) FillRounded(e.Graphics, hover, row, 7);
-				if (string.Equals(Modes[index], currentMode, StringComparison.Ordinal))
-					e.Graphics.FillEllipse(selected, 15, row.Top + 17, 8, 8);
-				e.Graphics.DrawString(Modes[index], font, normal, 31, row.Top + 11);
-				if (index < Modes.Length - 1)
-					e.Graphics.DrawLine(separator, 13, row.Bottom, Width - 13, row.Bottom);
-			}
+			bool selected = string.Equals(item.Key, currentMode,
+				StringComparison.Ordinal);
+			item.Value.Text = selected ? "●  " + item.Key : "    " + item.Key;
+			item.Value.ForeColor = selected ? Color.FromArgb(211, 44, 91) :
+				Color.FromArgb(38, 38, 42);
 		}
 	}
 
@@ -108,12 +128,6 @@ internal sealed class PlaybackModeOverlayForm : Form
 			Region = new Region(path);
 			if (old != null) old.Dispose();
 		}
-	}
-
-	private static void FillRounded(Graphics graphics, Brush brush,
-		Rectangle rectangle, int radius)
-	{
-		using (var path = RoundedPath(rectangle, radius)) graphics.FillPath(brush, path);
 	}
 
 	private static GraphicsPath RoundedPath(Rectangle rectangle, int radius)
