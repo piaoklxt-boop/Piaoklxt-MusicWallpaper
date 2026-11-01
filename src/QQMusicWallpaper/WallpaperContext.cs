@@ -14,6 +14,16 @@ namespace QQMusicWallpaper;
 
 internal sealed class WallpaperContext : ApplicationContext
 {
+	private sealed class CommentControlMap
+	{
+		public readonly Rectangle Bounds;
+		public readonly AccessibleTreeSnapshot Snapshot;
+		public CommentControlMap(Rectangle bounds, AccessibleTreeSnapshot snapshot)
+		{
+			Bounds = bounds;
+			Snapshot = snapshot;
+		}
+	}
 	private sealed class HiddenWindow : Form
 	{
 		private readonly Action onHotkey;
@@ -140,6 +150,7 @@ internal sealed class WallpaperContext : ApplicationContext
 	private readonly VolumeOverlayForm volumeOverlay;
 
 	private readonly PlaybackModeOverlayForm playbackModeOverlay;
+	private readonly ProgressPreviewForm progressPreview;
 	private readonly ExplorerThemeRuntime explorerThemeRuntime;
 
 	private readonly NotifyIcon tray;
@@ -233,7 +244,9 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private DateTime interactionStarted = DateTime.MinValue;
 
-	private bool progressSeekActive;
+	private volatile bool progressSeekActive;
+	private Rectangle activeProgressTimeline;
+	private int progressPreviewGeneration;
 
 	private Point pendingProgressSeekPoint = Point.Empty;
 
@@ -260,6 +273,10 @@ internal sealed class WallpaperContext : ApplicationContext
 	private volatile Rectangle[] playbackModeControlAreas = new Rectangle[0];
 
 	private volatile Rectangle[] commentControlAreas = new Rectangle[0];
+	private volatile CommentControlMap commentControlMap;
+	private long desktopClickSequence;
+	private long lastAccessibilitySnapshotTicks;
+	private int commentMissProbeRunning;
 
 	private volatile Rectangle[] lyricTranslationControlAreas = new Rectangle[0];
 
@@ -318,6 +335,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		};
 		playbackModeOverlay = new PlaybackModeOverlayForm();
 		playbackModeOverlay.ModeRequested += QueueSetPlaybackMode;
+		progressPreview = new ProgressPreviewForm();
 		explorerThemeRuntime = new ExplorerThemeRuntime();
 		explorerThemeRuntime.StartAsync();
 		if (!Native.RegisterHotKey(window.Handle, 20813, 3u, 85u))
@@ -701,6 +719,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				KeepSourceMaximizedBehindDesktop();
 				interactionActive = false;
 				progressSeekActive = false;
+				QueueHideProgressPreview();
 				interactionStarted = DateTime.MinValue;
 			}
 			if (interactionActive)
@@ -1028,6 +1047,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void DisableWallpaper(bool showQQ)
 	{
+		ResetPointerInteraction();
 		if (themeContext != null)
 		{
 			themeContext.RequestEndWallpaperSession();
@@ -1240,6 +1260,8 @@ internal sealed class WallpaperContext : ApplicationContext
 			return CallNextMouseHook(code, wParam, lParam);
 		}
 		uint num = (uint)wParam.ToInt64();
+		if (num == WmLButtonDown || num == WmRButtonDown)
+			Interlocked.Increment(ref desktopClickSequence);
 		if (num != WmMouseMove && num != WmLButtonDown && num != WmLButtonUp &&
 			num != WmRButtonDown && num != WmRButtonUp && num != WmMouseWheel)
 		{
@@ -1253,6 +1275,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			interactionActive = false;
 			progressSeekActive = false;
+			QueueHideProgressPreview();
 			interactionStarted = DateTime.MinValue;
 			return CallNextMouseHook(code, wParam, lParam);
 		}
@@ -1263,12 +1286,14 @@ internal sealed class WallpaperContext : ApplicationContext
 			if (progressAction == ProgressPointerAction.UpdatePendingPosition)
 			{
 				pendingProgressSeekPoint = point;
+				progressPreview?.UpdatePointer(point.X);
 			}
 			if (progressAction == ProgressPointerAction.CommitSeek)
 			{
 				pendingProgressSeekPoint = point;
-				ForwardProgressClick(pendingProgressSeekPoint, workingArea);
+				ForwardProgressClick(pendingProgressSeekPoint, workingArea, activeProgressTimeline);
 				progressSeekActive = false;
+				QueueHideProgressPreview();
 				interactionActive = false;
 				interactionTarget = IntPtr.Zero;
 				interactionStarted = DateTime.MinValue;
@@ -1355,8 +1380,10 @@ internal sealed class WallpaperContext : ApplicationContext
 		switch (num)
 		{
 		case 513u:
+			CommentControlMap clickCommentMap = commentControlMap;
 			DesktopSpecialAction specialAction = DesktopInputPolicy.ResolveSpecialAction(
-				IsVolumePoint(point), IsPlaybackModePoint(point), IsCommentPoint(point),
+				IsVolumePoint(point), IsPlaybackModePoint(point),
+				clickCommentMap != null && clickCommentMap.Bounds.Contains(point),
 				IsLyricTranslationPoint(point), IsAccompanimentPoint(point),
 				IsPlayerStylePoint(point), IsQualityPoint(point),
 				IsSoundEffectsPoint(point), IsPlaylistPoint(point));
@@ -1368,10 +1395,13 @@ internal sealed class WallpaperContext : ApplicationContext
 			DesktopClickRoute clickRoute = DesktopInputPolicy.ResolveDesktopClickRoute(
 				specialAction, hasMediaControl, hasLyricTimestamp,
 				hasProgressControl, hasGenericControl);
+			TraceDesktopClick(clickRoute, specialAction);
 			if (clickRoute == DesktopClickRoute.None)
 			{
+				nextAccessibilityRefresh = DateTime.MinValue;
 				if (DesktopInputPolicy.ShouldDismissTransientUi(num, num2,
 					isDesktopIcon: false)) DismissTransientQQUi();
+				QueueCommentMissProbe(point, workingArea);
 				return CallNextMouseHook(code, wParam, lParam);
 			}
 			if (clickRoute == DesktopClickRoute.LyricTimestamp)
@@ -1381,11 +1411,15 @@ internal sealed class WallpaperContext : ApplicationContext
 			}
 			if (clickRoute == DesktopClickRoute.ProgressControl)
 			{
+				Rectangle[] timelines = progressControlAreas;
+				if (timelines.Length == 0) return CallNextMouseHook(code, wParam, lParam);
+				activeProgressTimeline = timelines[0];
 				pendingProgressSeekPoint = point;
 				progressSeekActive = true;
 				interactionActive = true;
 				interactionTarget = qqWindow;
 				interactionStarted = DateTime.UtcNow;
+				QueueShowProgressPreview(activeProgressTimeline, point.X);
 				return new IntPtr(1);
 			}
 			if (clickRoute == DesktopClickRoute.MediaControl)
@@ -1402,7 +1436,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				QueueShowPlaybackModes();
 				return new IntPtr(1);
 			case DesktopSpecialAction.ShowNativeComments:
-				QueueShowNativeComments(workingArea);
+				QueueShowNativeComments(workingArea, clickCommentMap.Snapshot);
 				return new IntPtr(1);
 			case DesktopSpecialAction.ClickLyricTranslation:
 				QueueAccessibleControlAction("Lyric translation", workingArea,
@@ -1492,10 +1526,69 @@ internal sealed class WallpaperContext : ApplicationContext
 		return areas.Length > 0 && areas[0].Contains(point);
 	}
 
-	private bool IsCommentPoint(Point point)
+	private void TraceDesktopClick(DesktopClickRoute route, DesktopSpecialAction action)
 	{
-		Rectangle[] areas = commentControlAreas;
-		return areas.Length > 0 && areas[0].Contains(point);
+		if (!diagnosticMode) return;
+		long sequence = Interlocked.Read(ref desktopClickSequence);
+		long snapshotTicks = Interlocked.Read(ref lastAccessibilitySnapshotTicks);
+		long age = snapshotTicks == 0 ? -1 :
+			(DateTime.UtcNow.Ticks - snapshotTicks) / TimeSpan.TicksPerMillisecond;
+		ThreadPool.QueueUserWorkItem(delegate
+		{
+			Log("Desktop click: sequence=" + sequence + "; route=" + route +
+				"; action=" + action + "; snapshotAgeMs=" + age);
+		});
+	}
+
+	private void QueueCommentMissProbe(Point point, Rectangle work)
+	{
+		if (!Native.GetWindowRect(qqWindow, out var rect) ||
+			Interlocked.CompareExchange(ref commentMissProbeRunning, 1, 0) != 0) return;
+		long sequence = Interlocked.Read(ref desktopClickSequence);
+		long started = DateTime.UtcNow.Ticks;
+		IntPtr source = qqWindow;
+		Rectangle bounds = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+		ThreadPool.QueueUserWorkItem(delegate
+		{
+			try
+			{
+				if (!IsCommentProbeCurrent(sequence, started, source, bounds, point)) return;
+				Interlocked.Increment(ref accessibilityCaptureCount);
+				AccessibleTreeSnapshot snapshot = QQMusicAccessibility.CaptureSnapshot(source);
+				if (!IsCommentProbeCurrent(sequence, started, source, bounds, point)) return;
+				if (work.Width <= 0 || work.Height <= 0) return;
+				Point sourcePoint = new Point(
+					bounds.Left + (point.X - work.Left) * bounds.Width / work.Width,
+					bounds.Top + (point.Y - work.Top) * bounds.Height / work.Height);
+				bool comment = SemanticClickResolver.TryGetCommentAtPoint(snapshot, bounds,
+					sourcePoint, out var target);
+				if (diagnosticMode) Log("Comment miss probe: sequence=" + sequence +
+					"; semanticComment=" + comment);
+				if (comment && IsCommentProbeCurrent(sequence, started, source, bounds, point))
+					OpenNativeComments(work, snapshot,
+						() => IsCommentProbeCurrent(sequence, started, source, bounds, point));
+			}
+			catch (Exception error)
+			{
+				if (diagnosticMode) Log("Comment miss probe failed: " + error.GetType().Name);
+			}
+			finally { Interlocked.Exchange(ref commentMissProbeRunning, 0); }
+		});
+	}
+
+	private bool IsCommentProbeCurrent(long sequence, long started, IntPtr source,
+		Rectangle bounds, Point clickPoint)
+	{
+		if (exiting || !enabled || !embedded || interactionActive ||
+			!Native.GetWindowRect(qqWindow, out var rect) ||
+			!Native.GetCursorPos(out var cursor)) return false;
+		if (!SemanticClickResolver.IsRequestCurrent(sequence,
+			Interlocked.Read(ref desktopClickSequence), DateTime.UtcNow.Ticks - started,
+			source, qqWindow, bounds,
+			Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom))) return false;
+		if (Math.Abs(cursor.X - clickPoint.X) > 6 || Math.Abs(cursor.Y - clickPoint.Y) > 6)
+			return false;
+		return IsDesktopSurface(Native.GetAncestor(Native.WindowFromPoint(cursor), 2u));
 	}
 
 	private bool IsLyricTranslationPoint(Point point)
@@ -1575,6 +1668,8 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void QueueAccessiblePointAction(Point point, Rectangle work)
 	{
+		long sequence = Interlocked.Read(ref desktopClickSequence);
+		IntPtr source = qqWindow;
 		try
 		{
 			window.BeginInvoke((Action)delegate
@@ -1605,6 +1700,15 @@ internal sealed class WallpaperContext : ApplicationContext
 				if (!TryMapToSource(point, work, out var ignoredTarget,
 					out var sourcePoint)) return;
 				AccessibleTreeSnapshot snapshot = qqAccessibilitySnapshot;
+				if (Native.GetWindowRect(qqWindow, out var currentRect) &&
+					SemanticClickResolver.TryGetCommentAtPoint(snapshot,
+						Rectangle.FromLTRB(currentRect.Left, currentRect.Top, currentRect.Right, currentRect.Bottom),
+						new Point(sourcePoint.X, sourcePoint.Y), out var commentTarget))
+				{
+					OpenNativeComments(work, snapshot,
+						() => IsCommentActionCurrent(sequence, source));
+					return;
+				}
 				bool found = snapshot.TryGetControlTargetAtPoint(
 					new Point(sourcePoint.X, sourcePoint.Y),
 					out AccessibleNodeSnapshot target);
@@ -1653,11 +1757,14 @@ internal sealed class WallpaperContext : ApplicationContext
 		});
 	}
 
-	private void QueueShowNativeComments(Rectangle work)
+	private void QueueShowNativeComments(Rectangle work, AccessibleTreeSnapshot snapshot)
 	{
+		long sequence = Interlocked.Read(ref desktopClickSequence);
+		IntPtr source = qqWindow;
 		ResetPointerInteraction();
 		ThreadPool.QueueUserWorkItem(delegate
 		{
+			if (!IsCommentActionCurrent(sequence, source)) return;
 			IntPtr playlist = FindQQMusicPopupWindow("播放队列", "Play queue");
 			if (playlist != IntPtr.Zero && Native.IsWindowVisible(playlist))
 			{
@@ -1669,12 +1776,21 @@ internal sealed class WallpaperContext : ApplicationContext
 				}
 				Log("Native playlist closed before opening comments.");
 			}
-			OpenNativeComments(work);
+			OpenNativeComments(work, snapshot,
+				() => IsCommentActionCurrent(sequence, source));
 		});
 	}
 
-	private void OpenNativeComments(Rectangle work)
+	private bool IsCommentActionCurrent(long sequence, IntPtr source)
 	{
+		return !exiting && enabled && embedded && source == qqWindow &&
+			sequence == Interlocked.Read(ref desktopClickSequence);
+	}
+
+	private void OpenNativeComments(Rectangle work, AccessibleTreeSnapshot snapshot,
+		Func<bool> requestCurrent = null)
+	{
+		if (requestCurrent != null && !requestCurrent()) return;
 		IntPtr existingComments = FindQQMusicCommentWindow();
 		if (existingComments != IntPtr.Zero &&
 			TryPositionCommentWindow(existingComments, work))
@@ -1682,29 +1798,32 @@ internal sealed class WallpaperContext : ApplicationContext
 			Log("Existing native comment window restored to the working area.");
 			return;
 		}
-		bool invoked = TryInvokeQQControl("评论", "Comments");
+		bool invoked = TryInvokeQQControlSnapshot(snapshot, "评论", "Comments");
 		Log("Native comments invoked through its MSAA control; applied=" + invoked);
-		if (invoked) QueuePresentCommentWindow(work);
+		if (invoked) QueuePresentCommentWindow(work, snapshot, requestCurrent);
 	}
 
-	private void QueuePresentCommentWindow(Rectangle work)
+	private void QueuePresentCommentWindow(Rectangle work, AccessibleTreeSnapshot snapshot,
+		Func<bool> requestCurrent)
 	{
 		ThreadPool.QueueUserWorkItem(delegate
 		{
-			if (TryPresentCommentWindow(work, 12)) return;
+			if (TryPresentCommentWindow(work, 12, requestCurrent)) return;
+			if (requestCurrent != null && !requestCurrent()) return;
 			// QQ keeps hidden popup state internally. A second control action repairs
 			// that state after a prior forced hide or playlist transition.
-			TryInvokeQQControl("评论", "Comments");
+			TryInvokeQQControlSnapshot(snapshot, "评论", "Comments");
 			Log("Native comment state required one synchronized retry.");
-			if (TryPresentCommentWindow(work, 20)) return;
+			if (TryPresentCommentWindow(work, 20, requestCurrent)) return;
 			Log("Native comment window did not become visible after background click.");
 		});
 	}
 
-	private bool TryPresentCommentWindow(Rectangle work, int attempts)
+	private bool TryPresentCommentWindow(Rectangle work, int attempts, Func<bool> requestCurrent)
 	{
 		for (int attempt = 0; attempt < attempts; attempt++)
 		{
+			if (requestCurrent != null && !requestCurrent()) return false;
 			IntPtr comments = FindQQMusicCommentWindow();
 			if (comments != IntPtr.Zero && Native.IsWindowVisible(comments) &&
 				TryPositionCommentWindow(comments, work))
@@ -1720,10 +1839,14 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool TryInvokeQQControl(params string[] descriptions)
 	{
+		return TryInvokeQQControlSnapshot(qqAccessibilitySnapshot, descriptions);
+	}
+
+	private bool TryInvokeQQControlSnapshot(AccessibleTreeSnapshot snapshot, params string[] descriptions)
+	{
 		if (!Native.GetWindowRect(qqWindow, out var rect)) return false;
 		Rectangle sourceBounds = Rectangle.FromLTRB(rect.Left, rect.Top,
 			rect.Right, rect.Bottom);
-		AccessibleTreeSnapshot snapshot = qqAccessibilitySnapshot;
 		if (!TryGetQQControlTarget(snapshot, sourceBounds,
 			out AccessibleNodeSnapshot target, descriptions)) return false;
 		Point actionPoint = GetControlCenter(target);
@@ -1797,6 +1920,7 @@ internal sealed class WallpaperContext : ApplicationContext
 	{
 		interactionActive = false;
 		progressSeekActive = false;
+		QueueHideProgressPreview();
 		interactionTarget = IntPtr.Zero;
 		interactionStarted = DateTime.MinValue;
 	}
@@ -2178,6 +2302,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			try
 			{
+				if (!Native.GetWindowRect(source, out var scanStart)) return;
 				Interlocked.Increment(ref accessibilityCaptureCount);
 				AccessibleTreeSnapshot snapshot =
 					QQMusicAccessibility.CaptureSnapshot(source);
@@ -2187,6 +2312,12 @@ internal sealed class WallpaperContext : ApplicationContext
 				{
 					if (Native.GetWindowRect(source, out var sourceRect))
 					{
+						if (scanStart.Left != sourceRect.Left || scanStart.Top != sourceRect.Top ||
+							scanStart.Right != sourceRect.Right || scanStart.Bottom != sourceRect.Bottom)
+						{
+							nextAccessibilityRefresh = DateTime.MinValue;
+							return;
+						}
 						Rectangle sourceBounds = Rectangle.FromLTRB(sourceRect.Left,
 							sourceRect.Top, sourceRect.Right, sourceRect.Bottom);
 						for (int i = 0; i < areas.Length; i++)
@@ -2233,6 +2364,12 @@ internal sealed class WallpaperContext : ApplicationContext
 							commentBounds.Offset(visibleArea.Left - sourceRect.Left,
 								visibleArea.Top - sourceRect.Top);
 							commentControlAreas = new[] { commentBounds };
+							commentControlMap = new CommentControlMap(commentBounds, snapshot);
+						}
+						else
+						{
+							commentControlAreas = new Rectangle[0];
+							commentControlMap = null;
 						}
 						Rectangle[] qualityCandidates = GetMappedControlCandidates(snapshot,
 							sourceRect, visibleArea, includeHidden: true, "切换品质",
@@ -2344,6 +2481,7 @@ internal sealed class WallpaperContext : ApplicationContext
 						lyricTimestampAreas = lyricAreas.ToArray();
 					}
 					qqAccessibilitySnapshot = snapshot;
+					Interlocked.Exchange(ref lastAccessibilitySnapshotTicks, DateTime.UtcNow.Ticks);
 					qqInteractiveAreas = areas;
 				}
 			}
@@ -2466,12 +2604,47 @@ internal sealed class WallpaperContext : ApplicationContext
 	{
 		Rectangle[] progress = progressControlAreas;
 		if (progress.Length == 0) return;
-		Rectangle timeline = progress[0];
+		ForwardProgressClick(screenPoint, work, progress[0]);
+	}
+
+	private void ForwardProgressClick(Point screenPoint, Rectangle work, Rectangle timeline)
+	{
+		if (timeline.Width <= 0 || timeline.Height <= 0) return;
 		Point target = new Point(
 			Math.Max(timeline.Left, Math.Min(screenPoint.X, timeline.Right - 1)),
 			timeline.Top + timeline.Height / 2);
 		ForwardPointerToSource(target, work, WmLButtonDown, new IntPtr(1), qqWindow);
 		ForwardPointerToSource(target, work, WmLButtonUp, IntPtr.Zero, qqWindow);
+	}
+
+	private void QueueShowProgressPreview(Rectangle timeline, int pointerX)
+	{
+		if (progressPreview == null || window == null) return;
+		int generation = Interlocked.Increment(ref progressPreviewGeneration);
+		progressPreview.UpdatePointer(pointerX);
+		try
+		{
+			window.BeginInvoke((Action)delegate
+			{
+				if (progressSeekActive && generation == progressPreviewGeneration)
+					progressPreview.ShowProgress(timeline, pendingProgressSeekPoint.X);
+			});
+		}
+		catch (InvalidOperationException) { }
+	}
+
+	private void QueueHideProgressPreview()
+	{
+		int generation = Interlocked.Increment(ref progressPreviewGeneration);
+		if (progressPreview == null || window == null) return;
+		try
+		{
+			window.BeginInvoke((Action)delegate
+			{
+				if (generation == progressPreviewGeneration) progressPreview.HidePreview();
+			});
+		}
+		catch (InvalidOperationException) { }
 	}
 
 	private Rectangle[] GetQQAccessoryAreas(IntPtr source, Native.RECT sourceRect,
@@ -3019,6 +3192,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			tray.Dispose();
 			volumeOverlay.Dispose();
 			playbackModeOverlay.Dispose();
+			progressPreview.Dispose();
 			explorerThemeRuntime.Dispose();
 			window.Dispose();
 			if (rendererJob != IntPtr.Zero)

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net40</TargetFramework>
+    <UseWindowsForms>True</UseWindowsForms>
+    <LangVersion>14.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\QQMusicWallpaper\ProgressPreviewForm.cs" Link="ProgressPreviewForm.cs" />
+    <Compile Include="..\..\src\QQMusicWallpaper\Native.cs" Link="Native.cs" />
+  </ItemGroup>
+</Project>
