@@ -1,18 +1,50 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 - 2026-11-01
 
-### Fixed
+### 中文更新说明
 
-- 缩小底部媒体键的坐标兜底范围，并优先使用 QQ 音乐暴露的播放、上一首和下一首控件边界，避免播放键覆盖进度条。
-- 从 QQ 音乐公开的当前/总时长控件推导进度轨道。拖动时让 Windows 正常移动真实光标并只记录目标位置，松手时向 QQ 音乐提交一次跳转，避免离屏控件吞掉或冻结光标。
-- 点击歌词时间标签可按对应时间跳转播放。
-- 点击评论时在后台按原生控件边界打开独立评论窗口，并将屏幕外的评论窗移回工作区；点击桌面空白处会收起评论窗，主窗口继续留在桌面后方。
+#### 新增
 
-- Reduced the coordinate fallback for bottom media buttons and prefer QQ Music's accessible play, previous, and next bounds so play/pause no longer covers the progress bar.
-- Infer the timeline from QQ Music's exposed current/total-time controls. During a drag, let Windows move the real cursor while recording the target position, then submit exactly one QQ Music seek on release.
-- Seek playback by clicking an exposed lyric timestamp.
-- Open the separate native comment window through the exact exposed control bounds, restore it from offscreen, and dismiss it on a blank desktop click while the main player remains behind the desktop.
+- 支持在桌面单击或拖动进度条。轨道由 QQ 音乐公开的当前时长与总时长控件实时推导，拖动时真实光标保持可见且可移动，松手时只提交一次跳转。
+- 支持点击歌词时间标签跳转到对应播放位置。
+- 支持打开 QQ 音乐独立的原生评论窗口，并可在窗口内点击、滚动；点击桌面空白处会收起评论窗口，主播放器继续停留在桌面后方。
+- 翻译、伴奏、皮肤、音质、音效、更多菜单、播放列表和评论入口统一通过 QQ 音乐公开的语义控件及其实时边界路由。
+- 新增桌面输入策略回归测试，覆盖控件重叠、进度拖动、歌词跳转、弹窗归属、滚轮路由、关闭行为、重复控件树和缓存刷新。
+
+#### 修复
+
+- 修复播放键命中范围过大并覆盖进度条的问题；未发现语义控件时不再猜测固定屏幕位置。
+- 修复进度拖动时光标冻结、音乐连续加速跳转、按下即跳转、松手后仍未到达目标等问题。
+- 修复评论窗口弹到屏幕外、被主界面覆盖、触发任务栏提醒、无法滚动或点击空白处不能收起的问题。
+- 修复评论、伴奏、音质、音效、皮肤、更多菜单和播放列表弹出缓慢或点击失效，以及滚动评论时误滚歌词的问题。
+- 修复临时界面关闭逻辑向 QQ 音乐主表面发送 Escape，导致播放器返回首页的问题。
+- 修复播放顺序入口与已展开菜单选项共用控件边界时选错目标的问题；随机、顺序、单曲循环和列表循环继续使用明确的原生模式值。
+- 修复 QQ 音乐窗口恢复、最大化或移动后沿用旧控件映射的问题。
+- 修复 QQ 音乐控件树同时保留两套底部播放栏时，旧播放栏抢占评论入口的问题。
+- 降低主控件树重复扫描频率；原生弹窗打开期间直接复用其控件表面，减少交互迟钝。
+
+### English
+
+#### Added
+
+- Click or drag the desktop timeline. Its bounds are derived from QQ Music's exposed current/total-time controls; the real cursor remains responsive and one seek is committed on release.
+- Seek directly from exposed lyric timestamps.
+- Open QQ Music's separate native comment window, interact and scroll inside it, then dismiss it with a blank desktop click while the main player remains behind the desktop.
+- Route translation, accompaniment, player style, quality, effects, more-menu, playlist, and comment actions through exposed semantic controls and their live bounds.
+- Add desktop-input regression coverage for overlap, progress dragging, lyric seeking, popup ownership, wheel routing, dismissal, duplicate accessibility trees, and cache refresh.
+
+#### Fixed
+
+- Removed the oversized play target that covered the timeline; missing semantic controls no longer fall back to guessed fixed screen positions.
+- Fixed frozen cursor movement, repeated audible seeks, seek-on-press, and incorrect release targets during progress dragging.
+- Fixed comment windows appearing offscreen, losing z-order, flashing the taskbar, rejecting wheel input, or remaining open after a blank click.
+- Fixed slow or inert native surfaces for comments, accompaniment, quality, effects, player style, more-menu, and playlist, including wheel events leaking into lyrics.
+- Prevented transient dismissal on QQ Music's main surface from navigating back to the home page.
+- Fixed playback-order launcher selection when expanded menu choices share accessibility bounds; shuffle, sequential, single-repeat, and list-repeat retain explicit native values.
+- Invalidated cached control mappings after source-window recovery, maximization, or movement.
+- Selected the active player bar when QQ Music retains duplicate bottom bars in its accessibility tree.
+- Reduced repeated main-tree scans and reused the active popup control surface to remove interaction lag.
 
 ## 1.1.0 - 2026-10-20
 

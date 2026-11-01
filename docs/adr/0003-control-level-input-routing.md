@@ -1,0 +1,3 @@
+# Route desktop input through live semantic controls
+
+The desktop mirror resembles QQ Music but is not its native input surface, and fixed screen positions break across skins, window recovery, duplicate accessibility trees, and QQ Music updates. Desktop actions therefore resolve live semantic controls and native popup ownership before dispatch; the timeline is the sole derived surface because QQ Music exposes time labels but no slider. Controller overlays remain limited to volume and playback-order selection, where the native surface is not reliably representable. This adds accessibility-tree caching and invalidation work, but keeps interactions independent of resolution and prevents broad hit targets from stealing neighboring controls.

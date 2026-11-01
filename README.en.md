@@ -15,28 +15,28 @@ Turn the current QQ Music window into an interactive Windows desktop wallpaper. 
 - A portable x64 package: extract, run, and let the app find or open QQ Music.
 - Automatic color restoration on wallpaper shutdown or application exit.
 
-## What's new in v1.1.0
+## What's new in v1.2.0
 
 ### Added
 
-- Stable desktop overlays for volume and playback-order selection.
-- A bundled minimal File Explorer coloring runtime, removing the need for a separate Windhawk installation.
-- Automatic QQ Music discovery/startup, manual re-detection, update checks, and author information.
-- Complete Windows color backup and restoration when wallpaper rendering starts or stops.
+- Click or drag the desktop timeline while keeping the real cursor responsive and committing one seek on release.
+- Seek from exposed lyric timestamps and open, scroll, operate, and dismiss QQ Music's native comment window.
+- Operate translation, accompaniment, player style, quality, effects, the more menu, and the playlist through QQ Music's exposed semantic controls.
+- Regression coverage for overlapping controls, popup ownership, wheel routing, progress dragging, and duplicate accessibility trees.
 
 ### Fixed and improved
 
-- Playback-order choices now apply explicit native mode values for shuffle, sequential play, single-track repeat, and playlist repeat.
-- A selection sends one playback-mode command, eliminating repeated loading indicators.
-- Improved input ownership for desktop icons, clicks, dragging, filename editing, and lyric-wheel scrolling.
-- Improved full-desktop sizing, source-window hiding, and continuous animated rendering.
-- Consolidated the app into one tray entry and renamed the program, settings, assets, and package to `Piaoklxt-MusicWallpaper`.
+- Fixed the oversized play target that covered the timeline, frozen cursor movement while dragging, repeated audible seeks, and missed release targets.
+- Fixed slow or inert comments, accompaniment, quality, effects, player style, more-menu, and playlist surfaces, including wheel events leaking into lyrics.
+- Fixed blank-click dismissal and prevented main-surface cancellation from navigating back to the QQ Music home page.
+- Fixed playback-order launcher selection when menu choices share accessibility bounds; all four modes retain explicit native command values.
+- Fixed stale control mappings after source-window recovery and duplicate player bars that could disable the comment launcher.
 
 See [CHANGELOG.md](CHANGELOG.md) for the complete history.
 
 ## Download and run
 
-1. Download `Piaoklxt-MusicWallpaper-v1.1.0-win-x64.zip` from [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases).
+1. Download `Piaoklxt-MusicWallpaper-v1.2.0-win-x64.zip` from [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases).
 2. Extract the complete ZIP to any writable folder.
 3. Run `Piaoklxt-MusicWallpaper.exe`.
 
