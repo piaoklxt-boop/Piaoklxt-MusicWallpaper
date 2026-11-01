@@ -2150,7 +2150,7 @@ internal sealed class WallpaperContext : ApplicationContext
 							playbackModeControlAreas = new[] { playbackBounds };
 						}
 						else playbackModeControlAreas = new Rectangle[0];
-						if (snapshot.TryGetControlTarget(sourceBounds,
+						if (snapshot.TryGetBottommostControlTarget(sourceBounds,
 							out AccessibleNodeSnapshot commentTarget,
 							"评论", "Comments"))
 						{
@@ -2607,6 +2607,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				bounds.Width, bounds.Height, SwpFrameChanged | SwpShowWindow | 16u);
 			Native.GetWindowRect(qqWindow, out var rect);
 			sourcePresented = false;
+			if (positioned) nextAccessibilityRefresh = DateTime.MinValue;
 			return positioned && rect.Left < bounds.Left &&
 				(rect.Right - rect.Left) == bounds.Width && (rect.Bottom - rect.Top) == bounds.Height;
 		}

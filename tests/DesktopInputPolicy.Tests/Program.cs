@@ -156,6 +156,20 @@ internal static class Program
 				"评论", "Comments") && commentTarget.Name == "评论999+" &&
 				commentTarget.Bounds == playerComment.Bounds);
 
+		AccessibleTreeSnapshot duplicatePlayerSnapshot = new AccessibleTreeSnapshot(
+			new[]
+			{
+				new AccessibleNodeSnapshot("评论999+", "评论", "", 43, false, 6,
+					new Rectangle(-1742, 976, 51, 35)),
+				new AccessibleNodeSnapshot("评论999+", "评论", "", 43, false, 5,
+					new Rectangle(-1971, 1065, 51, 35))
+			});
+		AssertTrue("the active bottom player bar supplies the comment launcher",
+			duplicatePlayerSnapshot.TryGetBottommostControlTarget(
+				new Rectangle(-2076, 77, 1920, 1032),
+				out AccessibleNodeSnapshot activeComment, "评论", "Comments") &&
+				activeComment.Bounds == new Rectangle(-1971, 1065, 51, 35));
+
 		AccessibleTreeSnapshot timelineSnapshot = new AccessibleTreeSnapshot(new[]
 		{
 			new AccessibleNodeSnapshot("01:18", "", "", 41, false, 6,

@@ -234,6 +234,34 @@ internal sealed class AccessibleTreeSnapshot
 		return found;
 	}
 
+	public bool TryGetBottommostControlTarget(Rectangle preferredArea,
+		out AccessibleNodeSnapshot target, params string[] descriptions)
+	{
+		target = default;
+		int bestScore = int.MinValue;
+		bool found = false;
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if (node.Bounds.Width <= 0 || node.Bounds.Height <= 0 ||
+				!preferredArea.Contains(Center(node.Bounds))) continue;
+			int score = GetSemanticMatchScore(node, descriptions);
+			if (score == 0) continue;
+			if (!string.IsNullOrWhiteSpace(node.Action)) score += 100;
+			if (!node.Hidden) score += 10;
+			if (!found || node.Bounds.Bottom > target.Bounds.Bottom ||
+				node.Bounds.Bottom == target.Bounds.Bottom && score > bestScore ||
+				node.Bounds.Bottom == target.Bounds.Bottom && score == bestScore &&
+					node.Depth > target.Depth)
+			{
+				found = true;
+				bestScore = score;
+				target = node;
+			}
+		}
+		return found;
+	}
+
 	public bool TryGetControlTargetAtPoint(Point point,
 		out AccessibleNodeSnapshot target)
 	{
