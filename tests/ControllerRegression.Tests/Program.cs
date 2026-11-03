@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.IO;
 using System.Reflection;
 using System.Runtime.Serialization;
+using System.Threading;
 using System.Windows.Forms;
 using QQMusicWallpaper;
 
@@ -17,6 +19,8 @@ internal static class Program
     [STAThread]
     private static int Main()
     {
+        typeof(AppPaths).GetField("LogPath", BindingFlags.Static | BindingFlags.Public)
+            .SetValue(null, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "controller-regression.log"));
         Run("comment invocation uses the active launcher from duplicate player bars",
             CommentInvocationUsesActiveLauncher);
         Run("missing comment controls do not dispatch a click", MissingCommentDoesNotClick);
@@ -28,6 +32,20 @@ internal static class Program
             () => DynamicStyleDoesNotInvalidateCache(0x20000000L));
         Run("source movement invalidates cached control mappings", SourceMovementInvalidatesCache);
         Run("source recovery invalidates cached control mappings", SourceRecoveryInvalidatesCache);
+        Run("HQ keeps its quality identity after its display name changes to accompaniment", RenamedQualityLauncher);
+        Run("the right accompaniment entry remains a separate launcher", RightAccompanimentLauncher);
+        Run("quality duplicate mapping and invocation share the active node", () => DuplicatePopupLauncher(false));
+        Run("effects duplicate mapping and invocation share the active node", () => DuplicatePopupLauncher(true));
+        Run("popup launcher name is used only when its description is absent", LauncherNameFallback);
+        Run("a same-surface menu item cannot replace the launcher", MenuDoesNotReplaceLauncher);
+        Run("queued popup action retains its hit snapshot", () => QueuedLauncher(0));
+        Run("a newer desktop click cancels a queued popup action", () => QueuedLauncher(1));
+        Run("source geometry change cancels a queued popup action", () => QueuedLauncher(2));
+        Run("dismissal of More cannot reuse an earlier quality launcher", () => DifferentTransientToggle("更多"));
+        Run("dismissal of a playlist cannot reuse an earlier quality launcher", () => DifferentTransientToggle("播放队列"));
+        Run("a newer click during native activation cannot publish the old popup", () => CancellationDuringNativeClick(true));
+        Run("cancellation during the actual native click cannot publish a popup", () => CancellationDuringNativeClick(false));
+        PopupLifecycleRegression.Register(Run);
         Console.WriteLine("Controller regressions: " + passed + " passed, " + failed + " failed.");
         return failed == 0 ? 0 : 1;
     }
@@ -140,9 +158,242 @@ internal static class Program
         var controller = (WallpaperContext)FormatterServices.GetUninitializedObject(typeof(WallpaperContext));
         GC.SuppressFinalize(controller);
         SetField(controller, "qqWindow", source.Handle);
+        SetField(controller, "enabled", true);
+        SetField(controller, "embedded", true);
+        SetField(controller, "activeTransientToggleDescriptions", new string[0]);
+        SetField(controller, "qqPopupControlSurfaces", new AccessibleControlSurface[0]);
         SetField(controller, "originalStyle", Native.GetWindowLongPtr(source.Handle, -16).ToInt64() | 0x10000000L);
         SetField(controller, "originalExStyle", Native.GetWindowLongPtr(source.Handle, -20).ToInt64());
         return controller;
+    }
+
+    private static void RenamedQualityLauncher()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle quality = LauncherBounds(source, false);
+            Rectangle right = new Rectangle(source.Bounds.Right - 48, source.Bounds.Bottom - 131, 24, 24);
+            var snapshot = new AccessibleTreeSnapshot(new[]
+            {
+                Node("伴唱", "切换品质", 5, quality), Node("勃", "伴唱", 3, right)
+            });
+            PopupLauncherMap map = MapAt(controller, source, snapshot, quality);
+            Assert(map != null && map.Action == DesktopSpecialAction.ClickQuality,
+                "The HQ display name stole the stable quality description.");
+            AssertPopupClick(controller, source, map, quality);
+        }
+    }
+
+    private static void RightAccompanimentLauncher()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle right = new Rectangle(source.Bounds.Right - 48, source.Bounds.Bottom - 131, 24, 24);
+            var snapshot = new AccessibleTreeSnapshot(new[]
+            {
+                Node("伴唱", "切换品质", 5, LauncherBounds(source, false)), Node("勃", "伴唱", 3, right)
+            });
+            PopupLauncherMap map = MapAt(controller, source, snapshot, right);
+            Assert(map != null && map.Action == DesktopSpecialAction.ClickAccompaniment,
+                "The right accompaniment entry lost its identity.");
+            AssertPopupClick(controller, source, map, right);
+        }
+    }
+
+    private static void DuplicatePopupLauncher(bool effects)
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle active = LauncherBounds(source, effects);
+            Rectangle old = active; old.Offset(-12, -12);
+            string description = effects ? "音效" : "切换品质";
+            var snapshot = new AccessibleTreeSnapshot(new[]
+            {
+                Node(effects ? "剰" : "HQ", description, 6, old),
+                Node(effects ? "剰" : "HQ", description, 5, active)
+            });
+            PopupLauncherMap map = MapAt(controller, source, snapshot, active);
+            Assert(map != null && map.Target.Bounds == active, "A deeper stale bar replaced the active launcher.");
+            AssertPopupClick(controller, source, map, active);
+            source.Clicks.Clear();
+            Assert((bool)Invoke(controller, "TryInvokeQQControl", (object)new[] { description }),
+                "The alias-based invocation failed.");
+            Application.DoEvents();
+            Assert(source.Clicks.Count == 1 && source.Clicks[0] == LocalCenter(source, active),
+                "Alias-based invocation selected a different duplicate than the hit map.");
+        }
+    }
+
+    private static void LauncherNameFallback()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle target = LauncherBounds(source, true);
+            PopupLauncherMap map = MapAt(controller, source,
+                new AccessibleTreeSnapshot(new[] { Node("音效", "", 5, target) }), target);
+            Assert(map != null && map.Action == DesktopSpecialAction.ClickSoundEffects,
+                "An absent description must allow the semantic name fallback.");
+            AssertPopupClick(controller, source, map, target);
+            map = MapAt(controller, source,
+                new AccessibleTreeSnapshot(new[] { Node("音效", "其他功能", 5, target) }), target);
+            Assert(map == null, "A display name overrode a different stable description.");
+        }
+    }
+
+    private static void MenuDoesNotReplaceLauncher()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle target = LauncherBounds(source, true);
+            Rectangle menu = new Rectangle(target.Left - 100, target.Bottom + 1, 80, 20);
+            var snapshot = new AccessibleTreeSnapshot(new[]
+            {
+                Node("剰", "音效", 5, target),
+                new AccessibleNodeSnapshot("音效", "音效", "", 12, false, 10, menu)
+            });
+            PopupLauncherMap map = MapAt(controller, source, snapshot, target);
+            AssertPopupClick(controller, source, map, target);
+        }
+    }
+
+    private static void QueuedLauncher(int change)
+    {
+        using (var source = new TestSourceWindow())
+        using (var dispatchWindow = (Form)Activator.CreateInstance(
+            typeof(WallpaperContext).GetNestedType("HiddenWindow", BindingFlags.NonPublic),
+            new object[] { (Action)(() => { }) }))
+        {
+            IntPtr dispatchHandle = dispatchWindow.Handle;
+            var controller = CreateController(source);
+            SetField(controller, "window", dispatchWindow);
+            Rectangle active = LauncherBounds(source, false);
+            var snapshot = new AccessibleTreeSnapshot(new[] { Node("伴唱", "切换品质", 5, active) });
+            PopupLauncherMap map = MapAt(controller, source, snapshot, active);
+            Invoke(controller, "QueueAccessibleControlAction", "Audio quality",
+                new Rectangle(Point.Empty, source.Bounds.Size), new[] { "切换品质", "Change quality" }, false, map);
+            Rectangle replacement = active; replacement.Offset(-100, -100);
+            SetField(controller, "qqAccessibilitySnapshot", new AccessibleTreeSnapshot(new[]
+                { Node("HQ", "切换品质", 7, replacement) }));
+            if (change == 1) SetField(controller, "desktopClickSequence", 1L);
+            if (change == 2)
+                Native.SetWindowPos(source.Handle, IntPtr.Zero, source.Bounds.Left - 10,
+                    source.Bounds.Top, source.Bounds.Width, source.Bounds.Height, 0x14u);
+            Application.DoEvents();
+            Assert(change == 0 ? source.Clicks.Count == 1 && source.Clicks[0] == LocalCenter(source, active)
+                : source.Clicks.Count == 0, "A queued action used a substituted snapshot or outlived its click/geometry.");
+        }
+    }
+
+    private static void DifferentTransientToggle(string description)
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle quality = LauncherBounds(source, false);
+            PopupLauncherMap oldMap = MapAt(controller, source,
+                new AccessibleTreeSnapshot(new[] { Node("HQ", "切换品质", 5, quality) }), quality);
+            Rectangle target = quality; target.Offset(-100, -100);
+            SetField(controller, "qqAccessibilitySnapshot", new AccessibleTreeSnapshot(new[]
+                { Node(description, description, 5, target) }));
+            Assert((bool)Invoke(controller, "TryInvokeTransientToggle", new[] { description }, oldMap),
+                "The current transient entry could not be dismissed.");
+            Application.DoEvents();
+            Assert(source.Clicks.Count == 1 && source.Clicks[0] == LocalCenter(source, target),
+                "The previous popup launcher was reused to dismiss a different control.");
+        }
+    }
+
+    private static void CancellationDuringNativeClick(bool advanceClick)
+    {
+        TestSourceWindow source = null;
+        Exception workerError = null;
+        using (var ready = new ManualResetEvent(false))
+        using (var clicked = new ManualResetEvent(false))
+        using (var dispatchWindow = (Form)Activator.CreateInstance(
+            typeof(WallpaperContext).GetNestedType("HiddenWindow", BindingFlags.NonPublic),
+            new object[] { (Action)(() => { }) }))
+        {
+            var worker = new Thread(() =>
+            {
+                try
+                {
+                    using (var fixture = new TestSourceWindow())
+                    {
+                        source = fixture;
+                        ready.Set();
+                        Application.Run();
+                    }
+                }
+                catch (Exception error) { workerError = error; ready.Set(); }
+            });
+            worker.IsBackground = true;
+            worker.SetApartmentState(ApartmentState.STA);
+            worker.Start();
+            Assert(ready.WaitOne(2000) && source != null && workerError == null,
+                "The independent fixture message thread did not start.");
+            try
+            {
+                IntPtr dispatchHandle = dispatchWindow.Handle;
+                var controller = CreateController(source);
+                SetField(controller, "window", dispatchWindow);
+                Rectangle quality = LauncherBounds(source, false);
+                PopupLauncherMap map = MapAt(controller, source,
+                    new AccessibleTreeSnapshot(new[] { Node("HQ", "切换品质", 5, quality) }), quality);
+                source.OnButtonDown = () =>
+                {
+                    if (advanceClick) SetField(controller, "desktopClickSequence", 1L);
+                    Invoke(controller, "CancelPendingQQPopupPresentation");
+                    clicked.Set();
+                };
+                Invoke(controller, "QueueAccessibleControlAction", "Audio quality",
+                    new Rectangle(Point.Empty, source.Bounds.Size), new[] { "切换品质" }, true, map);
+                Application.DoEvents();
+                Assert(clicked.WaitOne(1000), "The real posted button-down was not received.");
+                Assert(((string[])GetField(controller, "activeTransientToggleDescriptions")).Length == 0 &&
+                    GetField(controller, "activeTransientLauncher") == null,
+                    "An action cancelled during its native click published a new transient owner.");
+                Invoke(controller, "CancelPendingQQPopupPresentation");
+            }
+            finally
+            {
+                Native.PostMessage(source.Handle, 0x8001, IntPtr.Zero, IntPtr.Zero);
+                Assert(worker.Join(2000), "The owned fixture thread did not stop.");
+            }
+        }
+    }
+
+    private static AccessibleNodeSnapshot Node(string name, string description, int depth, Rectangle bounds) =>
+        new AccessibleNodeSnapshot(name, description, "", 43, false, depth, bounds);
+
+    private static Rectangle LauncherBounds(TestSourceWindow source, bool effects) => effects
+        ? new Rectangle(source.Bounds.Right - 143, source.Bounds.Bottom - 56, 41, 35)
+        : new Rectangle(source.Bounds.Right - 193, source.Bounds.Bottom - 51, 43, 24);
+
+    private static PopupLauncherMap MapAt(WallpaperContext controller, TestSourceWindow source,
+        AccessibleTreeSnapshot snapshot, Rectangle target)
+    {
+        SetField(controller, "qqAccessibilitySnapshot", snapshot);
+        Invoke(controller, "RefreshPopupLauncherMaps", snapshot, source.Handle, source.Bounds,
+            new Rectangle(Point.Empty, source.Bounds.Size), Point.Empty);
+        return (PopupLauncherMap)Invoke(controller, "GetPopupLauncherAtPoint", LocalCenter(source, target));
+    }
+
+    private static Point LocalCenter(TestSourceWindow source, Rectangle target) =>
+        new Point(target.Left - source.Bounds.Left + target.Width / 2,
+            target.Top - source.Bounds.Top + target.Height / 2);
+
+    private static void AssertPopupClick(WallpaperContext controller, TestSourceWindow source,
+        PopupLauncherMap map, Rectangle target)
+    {
+        Assert(map != null && (bool)Invoke(controller, "TryInvokePopupLauncher", map), "The mapped launcher was not invoked.");
+        Application.DoEvents();
+        Assert(source.Clicks.Count == 1 && source.Clicks[0] == LocalCenter(source, target),
+            "The actual posted click did not use the launcher that supplied the hit bounds.");
     }
 
     private static object Invoke(object target, string name, params object[] args)
@@ -181,6 +432,7 @@ internal static class Program
     private sealed class TestSourceWindow : NativeWindow, IDisposable
     {
         internal readonly List<Point> Clicks = new List<Point>();
+        internal Action OnButtonDown;
 
         internal TestSourceWindow()
         {
@@ -221,10 +473,12 @@ internal static class Program
             {
                 int packed = message.LParam.ToInt32();
                 Clicks.Add(new Point((short)(packed & 0xffff), (short)(packed >> 16)));
+                OnButtonDown?.Invoke();
                 message.Result = IntPtr.Zero;
                 return;
             }
             if (message.Msg == 0x21) { message.Result = new IntPtr(3); return; }
+            if (message.Msg == 0x8001) { Application.ExitThread(); message.Result = IntPtr.Zero; return; }
             base.WndProc(ref message);
         }
 

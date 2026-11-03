@@ -115,6 +115,27 @@ This is the project record of approaches that failed during development. It cont
 
 ## Popup and accessory-window mistakes
 
+### Display names replaced stable launcher identity
+
+- **Failure:** Quality renamed its visible label to accompaniment, so a quality hit dispatched to the separate accompaniment launcher. Overlapping old player-bar nodes could also replace the hit target during invocation.
+- **Why it failed:** Hit testing matched either name or description, while invocation independently preferred a description match and a deeper node.
+- **Correction:** Classify popup launchers by description, falling back to name only when description is absent. Publish one immutable map containing the selected node, source geometry and hit bounds, then dispatch that map. Within overlapping duplicate nodes, prefer the active lower player bar.
+- **Guardrail:** Controller regressions record real posted messages for renamed labels, duplicate bars, snapshot replacement and changed source geometry. Clear the retained transient launcher when switching to other menu lifecycles.
+
+### Source maintenance demoted an owned popup
+
+- **Failure:** A popup remained visible and tracked but moved below other windows at the next source-maintenance tick.
+- **Why it failed:** Repeated `HWND_BOTTOM` parking changed the source's owned-window ordering, even when its geometry and non-topmost state had not changed.
+- **Correction:** Preserve owner ordering during source parking with `SWP_NOOWNERZORDER`, while retaining non-activation and the source's offscreen position.
+- **Guardrail:** Owned offscreen-window regressions compare both the popup's topmost style and its order relative to an unrelated window; an unowned popup is the control case. This reproduces the mechanism, not the identity of a historical window that has already closed.
+
+### Discovery ended before the actual panel was available
+
+- **Failure:** A reused visible panel, a panel appearing after one second, or a real dialog created after its shadow was not published as an input surface.
+- **Why it failed:** Discovery accepted the first newly visible same-process window, including the shadow, and stopped after about one second.
+- **Correction:** Filter native popup classes and known titles, exclude shadows and unrelated known panels, recover matching visible panels not already published, and allow a bounded five-second discovery period. Retain the original request identity across click delivery and discovery; newer clicks, dismissal and source changes cancel it.
+- **Guardrail:** Controller regressions cover new, reused, delayed and shadow-first windows, cancellation during click delivery, superseded requests, source movement and toggle-close without resurrection. Unknown newly visible QQ panels retain a compatibility fallback; live panel identity and first-load behavior still require real-player validation.
+
 ### Comments initially brought the source player forward
 
 - **Failure:** The main QQ Music interface covered the desktop or flashed its taskbar button when comments opened.

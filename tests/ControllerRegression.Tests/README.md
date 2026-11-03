@@ -8,7 +8,13 @@ or change the desktop/theme. A process-ownership check guards every fixture HWND
 
 The regressions cover duplicate comment launchers, absent launchers, repeated
 source parking (including maximized/minimized original style snapshots), source
-movement and hidden-window recovery. Unlike the pure
+movement and hidden-window recovery. Popup cases also cover renamed quality
+labels, overlapping player bars, retaining the hit target through queued dispatch,
+cross-menu dismissal and cancellation during the actual posted click. Native
+window fixtures exercise owned-popup ordering, reused and delayed panels,
+shadow-first creation, toggle-close, and cancellation by newer requests or source
+movement. Fixtures use their own registered QQ-style window classes; no production
+QQ process is inspected or controlled. Unlike the pure
 policy suite, they exercise the actual controller call paths that select a
 target and invalidate the accessibility cache. They do not replace live QQ Music
 acceptance testing or prove compatibility with all player versions.

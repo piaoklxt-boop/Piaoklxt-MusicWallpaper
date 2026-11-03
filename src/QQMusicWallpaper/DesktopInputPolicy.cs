@@ -105,6 +105,30 @@ internal readonly struct AccessibleNodeSnapshot
 	public Rectangle Bounds { get; }
 }
 
+internal sealed class PopupLauncherMap
+{
+	public readonly IntPtr Source;
+	public readonly Rectangle SourceBounds;
+	public readonly Rectangle Bounds;
+	public readonly AccessibleTreeSnapshot Snapshot;
+	public readonly AccessibleNodeSnapshot Target;
+	public readonly Point ActionPoint;
+	public readonly DesktopSpecialAction Action;
+
+	public PopupLauncherMap(IntPtr source, Rectangle sourceBounds, Rectangle bounds,
+		AccessibleTreeSnapshot snapshot, AccessibleNodeSnapshot target, Point actionPoint,
+		DesktopSpecialAction action)
+	{
+		Source = source;
+		SourceBounds = sourceBounds;
+		Bounds = bounds;
+		Snapshot = snapshot;
+		Target = target;
+		ActionPoint = actionPoint;
+		Action = action;
+	}
+}
+
 internal sealed class AccessibleTreeSnapshot
 {
 	private static readonly HashSet<int> InteractiveRoles = new HashSet<int>
@@ -196,6 +220,39 @@ internal sealed class AccessibleTreeSnapshot
 				found = true;
 				bestScore = score;
 				bestArea = area;
+				target = node;
+			}
+		}
+		return found;
+	}
+
+	public bool TryGetPopupLauncherTarget(Rectangle preferredArea,
+		DesktopSpecialAction action, out AccessibleNodeSnapshot target)
+	{
+		target = default;
+		if (action == DesktopSpecialAction.None) return false;
+		int bestScore = int.MinValue;
+		bool found = false;
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot node = nodes[index];
+			if (node.Bounds.Width <= 0 || node.Bounds.Height <= 0 ||
+				DesktopInputPolicy.GetPopupLauncherAction(string.IsNullOrWhiteSpace(
+					node.Description) ? node.Name : node.Description) != action) continue;
+			int score = string.IsNullOrWhiteSpace(node.Description) ? 200 : 300;
+			if (preferredArea.Contains(Center(node.Bounds))) score += 50;
+			if (!node.Hidden) score += 10;
+			if (node.Role == 43) score += 20;
+			bool overlappingDuplicate = found && node.Bounds.IntersectsWith(target.Bounds);
+			// Repeated player bars overlap with a small offset. Within that duplicate
+			// group, depth identifies the retained old tree, not the active launcher.
+			bool betterTie = overlappingDuplicate && node.Bounds.Bottom != target.Bounds.Bottom
+				? node.Bounds.Bottom > target.Bounds.Bottom
+				: node.Depth > target.Depth;
+			if (!found || score > bestScore || score == bestScore && betterTie)
+			{
+				found = true;
+				bestScore = score;
 				target = node;
 			}
 		}
@@ -426,6 +483,22 @@ internal static class AccessibleSurfaceRouter
 
 internal static class DesktopInputPolicy
 {
+	public static DesktopSpecialAction GetPopupLauncherAction(string semantic)
+	{
+		switch (semantic)
+		{
+		case "伴唱": case "伴奏": case "Accompaniment":
+			return DesktopSpecialAction.ClickAccompaniment;
+		case "播放器样式": case "Player style":
+			return DesktopSpecialAction.ClickPlayerStyle;
+		case "切换品质": case "Change quality":
+			return DesktopSpecialAction.ClickQuality;
+		case "音效": case "Sound effects":
+			return DesktopSpecialAction.ClickSoundEffects;
+		default: return DesktopSpecialAction.None;
+		}
+	}
+
 	public const int ControlActivationHoldMilliseconds = 80;
 	public const int AccessibilityRefreshIntervalMilliseconds = 5000;
 
