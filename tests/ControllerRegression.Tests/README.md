@@ -32,3 +32,5 @@ dotnet build .\tests\ControllerRegression.Tests\ControllerRegression.Tests.cspro
 
 The executable returns a nonzero exit code on any failed regression. It fails
 safely if the display arrangement provides no offscreen test parking rectangle.
+
+Shared-slot regressions replay visible accompaniment/hidden translation and the reverse, checking both hit classification and actual posted control messages. An owned offscreen accessory verifies that blank mirror space is not registered as a source control; hidden controls without a visible replacement retain the parked-source fallback.

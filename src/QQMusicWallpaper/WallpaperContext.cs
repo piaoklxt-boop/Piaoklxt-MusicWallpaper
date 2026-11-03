@@ -1834,7 +1834,8 @@ internal sealed class WallpaperContext : ApplicationContext
 				}
 				if (!presentsPopup) nextAccessibilityRefresh = DateTime.MinValue;
 				if (!presentsPopup) Diagnostics.Complete(sequence, 0,
-					invoked ? InteractionOutcome.Delivered : InteractionOutcome.TargetMissing);
+					invoked ? InteractionOutcome.Delivered :
+					found ? InteractionOutcome.DispatchFailed : InteractionOutcome.TargetMissing);
 				Log("MSAA point control invoked; applied=" + invoked);
 			});
 		}
@@ -2317,8 +2318,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				Interlocked.Increment(ref accessibilityCaptureCount);
 				AccessibleTreeSnapshot snapshot =
 					QQMusicAccessibility.CaptureSnapshot(source);
-				Rectangle[] areas = snapshot.GetInteractiveBounds(AllAccessibleSpace,
-					includeHidden: true);
+				Rectangle[] areas = new Rectangle[0];
 				if (source == qqWindow)
 				{
 					if (Native.GetWindowRect(source, out var sourceRect))
@@ -2331,14 +2331,7 @@ internal sealed class WallpaperContext : ApplicationContext
 						}
 						Rectangle sourceBounds = Rectangle.FromLTRB(sourceRect.Left,
 							sourceRect.Top, sourceRect.Right, sourceRect.Bottom);
-						for (int i = 0; i < areas.Length; i++)
-						{
-							areas[i].Offset(visibleArea.Left - sourceRect.Left,
-								visibleArea.Top - sourceRect.Top);
-						}
-						List<Rectangle> combined = new List<Rectangle>(areas);
-						combined.AddRange(GetQQAccessoryAreas(source, sourceRect, visibleArea));
-						areas = combined.ToArray();
+						areas = GetQQInteractiveAreas(snapshot, sourceRect, visibleArea);
 						Rectangle volumeBounds;
 						if (snapshot.TryFindVisibleControl("调节音量",
 							AllAccessibleSpace, out volumeBounds) ||
@@ -2686,42 +2679,15 @@ internal sealed class WallpaperContext : ApplicationContext
 		catch (InvalidOperationException) { }
 	}
 
-	private Rectangle[] GetQQAccessoryAreas(IntPtr source, Native.RECT sourceRect,
-		Rectangle visibleArea)
+	private Rectangle[] GetQQInteractiveAreas(AccessibleTreeSnapshot snapshot,
+		Native.RECT sourceRect, Rectangle visibleArea)
 	{
-		List<Rectangle> result = new List<Rectangle>();
-		Native.GetWindowThreadProcessId(source, out var sourceProcessId);
-		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
-		{
-			if (candidate == source || !Native.IsWindowVisible(candidate))
-			{
-				return true;
-			}
-			Native.GetWindowThreadProcessId(candidate, out var candidateProcessId);
-			if (candidateProcessId != sourceProcessId ||
-				!Native.GetWindowRect(candidate, out var rect))
-			{
-				return true;
-			}
-			int width = rect.Right - rect.Left;
-			int height = rect.Bottom - rect.Top;
-			if (width < 20 || height < 20 ||
-				(long)width * height > (long)visibleArea.Width * visibleArea.Height / 2)
-			{
-				return true;
-			}
-			Rectangle mapped = new Rectangle(
-				visibleArea.Left + rect.Left - sourceRect.Left,
-				visibleArea.Top + rect.Top - sourceRect.Top,
-				width, height);
-			mapped = Rectangle.Intersect(visibleArea, mapped);
-			if (!mapped.IsEmpty)
-			{
-				result.Add(mapped);
-			}
-			return true;
-		}, IntPtr.Zero);
-		return result.ToArray();
+		// Only source controls are projected into the mirror. Independent native
+		// windows own desktop input exclusively through Accessories.Surfaces.
+		Rectangle[] result = snapshot.GetInteractiveBounds(AllAccessibleSpace, includeHidden: true);
+		for (int index = 0; index < result.Length; index++)
+			result[index].Offset(visibleArea.Left - sourceRect.Left, visibleArea.Top - sourceRect.Top);
+		return result;
 	}
 
 	private bool TryMapToSource(Point screenPoint, Rectangle work, out IntPtr target,

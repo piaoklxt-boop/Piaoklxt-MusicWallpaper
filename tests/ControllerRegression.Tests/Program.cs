@@ -34,6 +34,11 @@ internal static class Program
         Run("source recovery invalidates cached control mappings", SourceRecoveryInvalidatesCache);
         Run("HQ keeps its quality identity after its display name changes to accompaniment", RenamedQualityLauncher);
         Run("the right accompaniment entry remains a separate launcher", RightAccompanimentLauncher);
+        Run("visible accompaniment wins over the hidden translation at identical bounds", () => SharedTranslationSlot(false));
+        Run("visible translation wins over the hidden accompaniment at identical bounds", () => SharedTranslationSlot(true));
+        Run("a hidden translation replaced by accompaniment cannot dispatch", HiddenTranslationDoesNotDispatch);
+        Run("a parked translation without a visible replacement remains usable", ParkedTranslationRemainsUsable);
+        Run("an untracked offscreen accessory does not turn blank desktop into a control", UntrackedAccessoryIsNotMirrorInput);
         Run("quality duplicate mapping and invocation share the active node", () => DuplicatePopupLauncher(false));
         Run("effects duplicate mapping and invocation share the active node", () => DuplicatePopupLauncher(true));
         Run("popup launcher name is used only when its description is absent", LauncherNameFallback);
@@ -199,6 +204,99 @@ internal static class Program
             Assert(map != null && map.Action == DesktopSpecialAction.ClickAccompaniment,
                 "The right accompaniment entry lost its identity.");
             AssertPopupClick(controller, source, map, right);
+        }
+    }
+
+    private static AccessibleTreeSnapshot SharedSlotSnapshot(Rectangle slot, bool translationVisible)
+    {
+        return new AccessibleTreeSnapshot(new[] {
+            new AccessibleNodeSnapshot("", "翻译歌词", "", 43, !translationVisible, 3, slot),
+            new AccessibleNodeSnapshot("", "伴唱", "", 43, translationVisible, 3, slot)
+        });
+    }
+
+    private static void SharedTranslationSlot(bool translationVisible)
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle slot = new Rectangle(source.Bounds.Right - 48, source.Bounds.Bottom - 131, 24, 24);
+            var snapshot = SharedSlotSnapshot(slot, translationVisible);
+            PopupLauncherMap map = MapAt(controller, source, snapshot, slot);
+            Native.GetWindowRect(source.Handle, out var rect);
+            var mapped = (Rectangle[])typeof(WallpaperContext).GetMethod("GetMappedControlCandidates",
+                BindingFlags.Static | BindingFlags.NonPublic).Invoke(null, new object[] {
+                    snapshot, rect, new Rectangle(Point.Empty, source.Bounds.Size), true,
+                    new[] { "翻译歌词", "Translation lyrics" } });
+            SetField(controller, "lyricTranslationControlAreas", mapped);
+            bool translation = (bool)Invoke(controller, "IsLyricTranslationPoint", LocalCenter(source, slot));
+            var action = DesktopInputPolicy.ResolveSpecialAction(false, false, false, translation,
+                map != null && map.Action == DesktopSpecialAction.ClickAccompaniment, false, false, false, false);
+            Assert(action == (translationVisible ? DesktopSpecialAction.ClickLyricTranslation : DesktopSpecialAction.ClickAccompaniment),
+                "The hidden occupant stole the shared translation/accompaniment slot: " + action);
+            Assert(!translationVisible || map == null, "Hidden accompaniment remained an active launcher.");
+            if (!translationVisible) AssertPopupClick(controller, source, map, slot);
+            else
+            {
+                Assert((bool)Invoke(controller, "TryInvokeQQControl", (object)new[] { "翻译歌词" }),
+                    "Visible translation could not dispatch.");
+                Application.DoEvents();
+                Assert(source.Clicks.Count == 1 && source.Clicks[0] == LocalCenter(source, slot),
+                    "Translation invocation used a different control than hit testing.");
+            }
+        }
+    }
+
+    private static void HiddenTranslationDoesNotDispatch()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            SetField(controller, "qqAccessibilitySnapshot", SharedSlotSnapshot(LauncherBounds(source, false), false));
+            bool invoked = (bool)Invoke(controller, "TryInvokeQQControl", (object)new[] { "翻译歌词", "Translation lyrics" });
+            Application.DoEvents();
+            Assert(!invoked && source.Clicks.Count == 0, "The hidden translation dispatched to accompaniment's shared location.");
+        }
+    }
+
+    private static void ParkedTranslationRemainsUsable()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle slot = LauncherBounds(source, false);
+            var snapshot = new AccessibleTreeSnapshot(new[] {
+                new AccessibleNodeSnapshot("", "翻译歌词", "", 43, true, 3, slot) });
+            SetField(controller, "qqAccessibilitySnapshot", snapshot);
+            Assert(snapshot.GetControlBounds("翻译歌词", source.Bounds, true).Length == 1,
+                "Parking alone removed translation's hit bounds.");
+            Assert((bool)Invoke(controller, "TryInvokeQQControl", (object)new[] { "翻译歌词" }),
+                "Parking alone disabled translation dispatch.");
+            Application.DoEvents();
+            Assert(source.Clicks.Count == 1, "The hidden fallback did not dispatch exactly once.");
+        }
+    }
+
+    private static void UntrackedAccessoryIsNotMirrorInput()
+    {
+        using (var source = new TestSourceWindow())
+        using (var accessory = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            foreach (var field in typeof(WallpaperContext).GetFields(BindingFlags.NonPublic | BindingFlags.Instance))
+                if (field.FieldType == typeof(Rectangle[])) field.SetValue(controller, new Rectangle[0]);
+            Native.SetWindowPos(accessory.Handle, IntPtr.Zero, source.Bounds.Left + 400,
+                source.Bounds.Top + 200, 414, 360, 0x54u);
+            Native.GetWindowRect(source.Handle, out var rect);
+            var snapshot = new AccessibleTreeSnapshot(new[] { Node("button", "button", 3,
+                new Rectangle(source.Bounds.Left + 10, source.Bounds.Top + 10, 24, 24)) });
+            var areas = (Rectangle[])Invoke(controller, "GetQQInteractiveAreas", snapshot, rect,
+                new Rectangle(Point.Empty, source.Bounds.Size));
+            SetField(controller, "qqInteractiveAreas", areas);
+            Assert(!(bool)Invoke(controller, "IsQQInteractionPoint", new Point(600, 350)),
+                "An offscreen top-level window projected a fake control onto blank desktop.");
+            Assert((bool)Invoke(controller, "IsQQInteractionPoint", new Point(20, 20)),
+                "A real source control lost its mirror input area.");
         }
     }
 

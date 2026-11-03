@@ -172,7 +172,7 @@ internal sealed class AccessibleTreeSnapshot
 		{
 			AccessibleNodeSnapshot node = nodes[index];
 			if ((!includeHidden && node.Hidden) ||
-				!Matches(node, description)) continue;
+				!Matches(node, description) || HasVisibleReplacement(index)) continue;
 			Rectangle item = Rectangle.Intersect(searchArea, node.Bounds);
 			if (item.Width > 0 && item.Height > 0 && !result.Contains(item))
 				result.Add(item);
@@ -207,7 +207,7 @@ internal sealed class AccessibleTreeSnapshot
 			AccessibleNodeSnapshot node = nodes[index];
 			if (node.Bounds.Width <= 0 || node.Bounds.Height <= 0) continue;
 			int matchScore = GetSemanticMatchScore(node, descriptions);
-			if (matchScore == 0) continue;
+			if (matchScore == 0 || HasVisibleReplacement(index)) continue;
 			int score = matchScore;
 			if (!string.IsNullOrWhiteSpace(node.Action)) score += 100;
 			if (preferredArea.Contains(Center(node.Bounds))) score += 50;
@@ -238,7 +238,8 @@ internal sealed class AccessibleTreeSnapshot
 			AccessibleNodeSnapshot node = nodes[index];
 			if (node.Bounds.Width <= 0 || node.Bounds.Height <= 0 ||
 				DesktopInputPolicy.GetPopupLauncherAction(string.IsNullOrWhiteSpace(
-					node.Description) ? node.Name : node.Description) != action) continue;
+					node.Description) ? node.Name : node.Description) != action ||
+				HasVisibleReplacement(index)) continue;
 			int score = string.IsNullOrWhiteSpace(node.Description) ? 200 : 300;
 			if (preferredArea.Contains(Center(node.Bounds))) score += 50;
 			if (!node.Hidden) score += 10;
@@ -373,6 +374,24 @@ internal sealed class AccessibleTreeSnapshot
 				StringComparison.Ordinal)) score = Math.Max(score, 200);
 		}
 		return score;
+	}
+
+	private bool HasVisibleReplacement(int nodeIndex)
+	{
+		AccessibleNodeSnapshot node = nodes[nodeIndex];
+		if (!node.Hidden) return false;
+		// QQ retains translation/accompaniment alternatives at the exact same slot.
+		// Hidden controls may still be needed while the source is parked, but an
+		// explicitly visible alternative with a different identity owns this slot.
+		for (int index = 0; index < nodes.Length; index++)
+		{
+			AccessibleNodeSnapshot other = nodes[index];
+			if (other.Hidden || other.Bounds != node.Bounds || other.Role != node.Role ||
+				string.IsNullOrWhiteSpace(GetSemanticLabel(other))) continue;
+			if (!string.Equals(GetSemanticLabel(node), GetSemanticLabel(other),
+				StringComparison.Ordinal)) return true;
+		}
+		return false;
 	}
 
 	private bool HasConflictingSemanticAtSameBounds(int nodeIndex,
