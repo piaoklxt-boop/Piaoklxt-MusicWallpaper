@@ -19,6 +19,12 @@ policy suite, they exercise the actual controller call paths that select a
 target and invalidate the accessibility cache. They do not replace live QQ Music
 acceptance testing or prove compatibility with all player versions.
 
+The coordinator tests additionally cover moved input surfaces, ambiguous/unknown
+windows, shared comment cancellation and single-dispatch delayed comments.
+Diagnostic regressions cover the 32-entry bound, allowlisted export schema,
+concurrent recording, quiet cancellation, consecutive failures and notification
+cooldown. Export tests inspect the returned text without opening a save dialog.
+
 ```powershell
 dotnet build .\tests\ControllerRegression.Tests\ControllerRegression.Tests.csproj -c Release --artifacts-path .\artifacts\controller-regressions '-bl:artifacts\controller-regressions-{}.binlog'
 & .\artifacts\controller-regressions\bin\ControllerRegression.Tests\release\ControllerRegression.Tests.exe

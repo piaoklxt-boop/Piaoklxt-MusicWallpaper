@@ -46,6 +46,7 @@ internal static class Program
         Run("a newer click during native activation cannot publish the old popup", () => CancellationDuringNativeClick(true));
         Run("cancellation during the actual native click cannot publish a popup", () => CancellationDuringNativeClick(false));
         PopupLifecycleRegression.Register(Run);
+        InteractionDiagnosticsRegression.Register(Run);
         Console.WriteLine("Controller regressions: " + passed + " passed, " + failed + " failed.");
         return failed == 0 ? 0 : 1;
     }

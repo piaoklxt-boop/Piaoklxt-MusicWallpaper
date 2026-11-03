@@ -115,6 +115,18 @@ This is the project record of approaches that failed during development. It cont
 
 ## Popup and accessory-window mistakes
 
+### Independent comment retries escaped ordinary popup cancellation
+
+- **Failure:** Comments used a separate polling loop and could replay a toggle while waiting for a delayed window; cancellation and tracked input bounds were managed separately from other native popups.
+- **Correction:** Keep discovery, presentation, request validity and tracked surfaces in `AccessoryWindowCoordinator`. Comments share the original click/request identity and perform one control invocation. Repeated discovery is permitted; repeated toggle clicks are not.
+- **Guardrail:** Controller fixtures exercise delayed comments, explicit cancellation without a newer click, moved popup bounds, scoped recovery and ordinary popup regressions through the shared implementation.
+
+### Unknown windows and ordinary closure were ambiguous diagnostic outcomes
+
+- **Failure:** Selecting the first new window can guess the wrong input owner, while treating every discovery deadline as a failure mislabels a successfully closed popup.
+- **Correction:** Reject unknown or tied candidates; preserve the full discovery deadline for a possible replacement window, then recognize closure of previously tracked matching windows as `Closed`.
+- **Guardrail:** Native-window tests cover ambiguity, unknown titles and toggle-close without resurrection or a timeout failure. The diagnostic buffer accepts only enum/numeric fields, is bounded to 32 entries and never exports old logs or window titles.
+
 ### Display names replaced stable launcher identity
 
 - **Failure:** Quality renamed its visible label to accompaniment, so a quality hit dispatched to the separate accompaniment launcher. Overlapping old player-bar nodes could also replace the hit target during invocation.

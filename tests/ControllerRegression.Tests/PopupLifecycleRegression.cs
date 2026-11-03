@@ -39,6 +39,108 @@ internal static class PopupLifecycleRegression
         RunCase(run, "a newer desktop click cancels popup discovery", NewClickCancelsDiscovery);
         RunCase(run, "source movement cancels popup discovery", SourceMovementCancelsDiscovery);
         RunCase(run, "a newer popup request supersedes the earlier request", NewPopupRequestSupersedesEarlierRequest);
+        RunCase(run, "moving a published popup refreshes its input bounds", MovedPopupRefreshesBounds);
+        RunCase(run, "equally plausible popups are rejected with a diagnostic reason", () => UncertainPopupIsRejected(false));
+        RunCase(run, "an unknown native popup is never guessed from its appearance", () => UncertainPopupIsRejected(true));
+        RunCase(run, "delayed comments use one click and the shared presentation lifecycle", CommentsUseOneInvocation);
+        RunCase(run, "comment discovery obeys the same explicit cancellation as other popups", CommentsRespectCancellation);
+        RunCase(run, "recovery clears tracked input without dismissing unrelated native windows", RecoveryIsScoped);
+    }
+
+    private static AccessoryWindowCoordinator Coordinator(WallpaperContext controller)
+    {
+        return (AccessoryWindowCoordinator)typeof(WallpaperContext).GetProperty("Accessories", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(controller, null);
+    }
+
+    private static void RecoveryIsScoped()
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(source.Handle, true))
+        using (var unrelated = new FixtureWindow(source.Handle, true, "TXGuiFoundation", "Unrelated settings"))
+        {
+            var controller = CreateParkedController(source);
+            var coordinator = Coordinator(controller);
+            Native.ShowWindow(popup.Handle, 4);
+            Native.ShowWindow(unrelated.Handle, 4);
+            coordinator.PublishQQPopupSurface(popup.Handle, source.Bounds);
+            Rectangle before = source.Bounds;
+            coordinator.Recover();
+            Pump(100);
+            Assert(coordinator.Surfaces.Length == 0 && source.Bounds == before, "Recovery did not clear ownership or moved the source.");
+            Assert(popup.CancelMessages > 0 && unrelated.CancelMessages == 0, "Recovery dismissed a window it did not own.");
+            AssertFixturesNeverActivated();
+        }
+    }
+
+    private static void MovedPopupRefreshesBounds()
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(source.Handle, true))
+        {
+            var controller = CreateParkedController(source);
+            var coordinator = Coordinator(controller);
+            Native.ShowWindow(popup.Handle, 4);
+            coordinator.PublishQQPopupSurface(popup.Handle, source.Bounds);
+            Rectangle old = coordinator.Surfaces[0].Bounds;
+            Native.SetWindowPos(popup.Handle, IntPtr.Zero, old.Left + 80, old.Top + 30, old.Width, old.Height, 0x14u);
+            coordinator.PruneQQPopupSurfaces();
+            Assert(coordinator.Surfaces[0].Bounds == Rectangle.Intersect(source.Bounds, popup.Bounds), "Published input bounds did not follow the window.");
+            Assert(!coordinator.Surfaces[0].Bounds.Contains(old.Left + 1, old.Top + 1), "Old popup pixels still own input.");
+        }
+    }
+
+    private static void UncertainPopupIsRejected(bool unknown)
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var first = new FixtureWindow(source.Handle, true, "TXGuiFoundation", unknown ? "private fixture title" : "音效盒子"))
+        using (var second = new FixtureWindow(source.Handle, true))
+        {
+            var controller = CreateParkedController(source);
+            var diagnostics = (InteractionDiagnostics)typeof(WallpaperContext).GetProperty("Diagnostics", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(controller, null);
+            diagnostics.Begin(0, DesktopClickRoute.SpecialControl, DesktopSpecialAction.ClickSoundEffects, 0);
+            QueueDiscovery(controller, source.Bounds);
+            Native.ShowWindow(first.Handle, 4);
+            if (!unknown) Native.ShowWindow(second.Handle, 4);
+            Pump(5250);
+            Assert(!Tracks(controller, first.Handle) && !Tracks(controller, second.Handle), "Ambiguous window became an input owner.");
+            string report = diagnostics.Export();
+            Assert(report.Contains("AmbiguousTarget") && !report.Contains("private fixture title"), "Missing safe diagnostic reason.");
+        }
+    }
+
+    private static void CommentsUseOneInvocation()
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        {
+            var controller = CreateParkedController(source);
+            var coordinator = Coordinator(controller);
+            int calls = 0;
+            coordinator.OpenNativeComments(source.Bounds, () => { calls++; return true; });
+            Pump(1250);
+            using (var comments = new FixtureWindow(source.Handle, true, "TXGuiFoundation", "评论"))
+            {
+                Native.ShowWindow(comments.Handle, 4);
+                Pump(300);
+                Assert(calls == 1 && Tracks(controller, comments.Handle), "Delayed comments were missed or clicked twice.");
+            }
+        }
+    }
+
+    private static void CommentsRespectCancellation()
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        {
+            var controller = CreateParkedController(source);
+            var coordinator = Coordinator(controller);
+            coordinator.OpenNativeComments(source.Bounds, () => true);
+            coordinator.CancelPendingQQPopupPresentation();
+            using (var comments = new FixtureWindow(source.Handle, true, "TXGuiFoundation", "评论"))
+            {
+                Native.ShowWindow(comments.Handle, 4);
+                Pump(300);
+                Assert(!Tracks(controller, comments.Handle) && !IsTopmost(comments.Handle), "A cancelled comment request was presented.");
+            }
+        }
     }
 
     private static void RunCase(Action<string, Action> run, string name, Action test)
@@ -167,10 +269,13 @@ internal static class PopupLifecycleRegression
             WallpaperContext controller = CreateParkedController(source);
             Assert((bool)Invoke(controller, "TryPositionQQPopup", popup.Handle, source.Bounds), "Initial presentation failed.");
             Invoke(controller, "PublishQQPopupSurface", popup.Handle, source.Bounds);
+            var diagnostics = (InteractionDiagnostics)typeof(WallpaperContext).GetProperty("Diagnostics", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(controller, null);
+            diagnostics.Begin(0, DesktopClickRoute.SpecialControl, DesktopSpecialAction.ClickSoundEffects, 0);
             QueueDiscovery(controller, source.Bounds);
             Native.ShowWindow(popup.Handle, 0);
-            Pump(250);
+            Pump(5250);
             Assert(!Native.IsWindowVisible(popup.Handle), "Discovery resurrected a tracked popup after its toggle closed it.");
+            Assert(diagnostics.Export().Contains("Closed"), "Successful toggle-close must not count as a popup timeout.");
         }
     }
 
@@ -353,6 +458,7 @@ internal static class PopupLifecycleRegression
 
     private sealed class FixtureWindow : NativeWindow, IDisposable
     {
+        internal int CancelMessages;
         internal FixtureWindow(IntPtr owner, bool popup, string className = "TXGuiFoundation", string title = null)
         {
             if (RegisteredClasses.Add(className))
@@ -399,6 +505,7 @@ internal static class PopupLifecycleRegression
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == 31) CancelMessages++;
             if (message.Msg == 0x21) { message.Result = new IntPtr(3); return; }
             base.WndProc(ref message);
         }

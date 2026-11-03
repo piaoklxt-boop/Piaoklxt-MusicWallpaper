@@ -263,13 +263,23 @@ internal sealed class WallpaperContext : ApplicationContext
 		new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]);
 
 	private AccessoryWindowCoordinator accessories;
+	private InteractionDiagnostics interactionDiagnostics;
+	private InteractionDiagnostics Diagnostics
+	{
+		get
+		{
+			if (interactionDiagnostics == null)
+				Interlocked.CompareExchange(ref interactionDiagnostics, new InteractionDiagnostics(), null);
+			return interactionDiagnostics;
+		}
+	}
 	private AccessoryWindowCoordinator Accessories
 	{
 		get
 		{
 			if (accessories == null)
 				Interlocked.CompareExchange(ref accessories, new AccessoryWindowCoordinator(
-					() => qqWindow, () => Interlocked.Read(ref desktopClickSequence), Log), null);
+					() => qqWindow, () => Interlocked.Read(ref desktopClickSequence), Log, Diagnostics), null);
 			return accessories;
 		}
 	}
@@ -404,6 +414,10 @@ internal sealed class WallpaperContext : ApplicationContext
 			}
 		};
 		contextMenu.MenuItems.Add(item);
+		contextMenu.MenuItems.Add(L10n.Text("导出交互诊断…", "Export interaction diagnostics…"),
+			delegate { ExportInteractionDiagnostics(); });
+		contextMenu.MenuItems.Add(L10n.Text("恢复桌面交互", "Recover desktop interaction"),
+			delegate { RecoverDesktopInteraction(); });
 		MenuItem startupItem = null;
 		startupItem = new MenuItem(L10n.Text("开机自动启动", "Start with Windows"), delegate
 		{
@@ -691,6 +705,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void MaintainWallpaper()
 	{
+		ShowInteractionFailureIfNeeded();
 		if (!enabled || suspended)
 		{
 			return;
@@ -1543,13 +1558,61 @@ internal sealed class WallpaperContext : ApplicationContext
 		return areas.Length > 0 && areas[0].Contains(point);
 	}
 
+	private void ExportInteractionDiagnostics()
+	{
+		using (var dialog = new SaveFileDialog())
+		{
+			dialog.Filter = "Text files (*.txt)|*.txt";
+			dialog.FileName = "MusicWallpaper-interactions.txt";
+			dialog.Title = L10n.Text("导出本机交互诊断（不含歌曲、歌词或账号）", "Export local interaction diagnostics");
+			if (dialog.ShowDialog() != DialogResult.OK) return;
+			try { File.WriteAllText(dialog.FileName, Diagnostics.Export(), Encoding.UTF8); }
+			catch { MessageBox.Show(L10n.Text("诊断文件无法保存，请选择其他位置。", "Could not save diagnostics. Choose another location.")); }
+		}
+	}
+
+	private void RecoverDesktopInteraction()
+	{
+		// Explicit tray action: restore input routing without launching QQ Music,
+		// changing playback, activating the source, or changing wallpaper settings.
+		Accessories.Recover();
+		activeTransientToggleDescriptions = new string[0];
+		activeTransientLauncher = null;
+		activeTransientPopupPersistent = false;
+		ResetPointerInteraction();
+		nextAccessibilityRefresh = DateTime.MinValue;
+		if (enabled && embedded && Native.IsWindow(qqWindow))
+		{
+			KeepSourceMaximizedBehindDesktop();
+			RestartMouseHook();
+			RefreshInteractiveAreasIfDue();
+		}
+		long sequence = Interlocked.Increment(ref desktopClickSequence);
+		Diagnostics.Begin(sequence, DesktopClickRoute.None, DesktopSpecialAction.None, -1);
+		Diagnostics.Complete(sequence, 0, InteractionOutcome.RecoveryRequested);
+	}
+
+	private void ShowInteractionFailureIfNeeded()
+	{
+		if (tray == null || !Diagnostics.TakeNotice(out var reason)) return;
+		string explanation = reason == InteractionOutcome.AmbiguousTarget
+			? L10n.Text("无法确定目标窗口。", "The target window could not be identified.")
+			: reason == InteractionOutcome.PopupTimeout
+				? L10n.Text("没有观察到弹窗出现。", "The requested popup was not observed.")
+				: L10n.Text("控件未识别或操作未成功投递。", "The control was not identified or the action could not be delivered.");
+		tray.ShowBalloonTip(5000, L10n.Text("桌面交互连续失败", "Repeated desktop interaction failures"),
+			explanation + L10n.Text("可右键托盘选择“恢复桌面交互”或“导出交互诊断”。",
+				" Right-click the tray to recover interaction or export diagnostics."), ToolTipIcon.Warning);
+	}
+
 	private void TraceDesktopClick(DesktopClickRoute route, DesktopSpecialAction action)
 	{
-		if (!diagnosticMode) return;
 		long sequence = Interlocked.Read(ref desktopClickSequence);
 		long snapshotTicks = Interlocked.Read(ref lastAccessibilitySnapshotTicks);
 		long age = snapshotTicks == 0 ? -1 :
 			(DateTime.UtcNow.Ticks - snapshotTicks) / TimeSpan.TicksPerMillisecond;
+		if (route != DesktopClickRoute.None) Diagnostics.Begin(sequence, route, action, age);
+		if (!diagnosticMode) return;
 		ThreadPool.QueueUserWorkItem(delegate
 		{
 			Log("Desktop click: sequence=" + sequence + "; route=" + route +
@@ -1665,7 +1728,12 @@ internal sealed class WallpaperContext : ApplicationContext
 			window.BeginInvoke((Action)delegate
 			{
 				if (sequence != Interlocked.Read(ref desktopClickSequence) ||
-					launcher != null && !IsPopupLauncherCurrent(launcher)) return;
+					launcher != null && !IsPopupLauncherCurrent(launcher))
+				{
+					Diagnostics.Complete(sequence, 0, InteractionOutcome.Cancelled);
+					nextAccessibilityRefresh = DateTime.MinValue;
+					return;
+				}
 				ResetPointerInteraction();
 				AccessoryWindowCoordinator.PopupPresentationRequest request = presentPopup ? BeginQQPopupPresentation(sequence) : null;
 				if (presentPopup && request == null) return;
@@ -1675,7 +1743,12 @@ internal sealed class WallpaperContext : ApplicationContext
 					TryInvokePopupLauncher(launcher);
 				if (sequence != Interlocked.Read(ref desktopClickSequence) ||
 					launcher != null && !IsPopupLauncherCurrent(launcher) ||
-					presentPopup && !IsQQPopupPresentationCurrent(request)) return;
+					presentPopup && !IsQQPopupPresentationCurrent(request))
+				{
+					Accessories.Finish(request, InteractionOutcome.Cancelled);
+					nextAccessibilityRefresh = DateTime.MinValue;
+					return;
+				}
 				if (!presentPopup) nextAccessibilityRefresh = DateTime.MinValue;
 				if (invoked && presentPopup)
 				{
@@ -1686,6 +1759,9 @@ internal sealed class WallpaperContext : ApplicationContext
 							StringComparison.Ordinal);
 				}
 				Log(controlName + " invoked through its MSAA control; applied=" + invoked);
+				if (!invoked) Accessories.Finish(request, InteractionOutcome.TargetMissing);
+				if (!presentPopup) Diagnostics.Complete(sequence, 0,
+					invoked ? InteractionOutcome.Delivered : InteractionOutcome.TargetMissing);
 				if (invoked && presentPopup)
 					QueuePresentQQPopup(request, visibleBefore, work, controlName);
 			});
@@ -1748,6 +1824,7 @@ internal sealed class WallpaperContext : ApplicationContext
 					? GetVisibleQQTopLevelWindows() : null;
 				AccessoryWindowCoordinator.PopupPresentationRequest request = presentsPopup ? BeginQQPopupPresentation(sequence) : null;
 				bool invoked = found && PostQQControlClick(GetControlCenter(target));
+				if (!invoked && presentsPopup) Accessories.Finish(request, InteractionOutcome.DispatchFailed);
 				if (invoked && presentsPopup && IsQQPopupPresentationCurrent(request))
 				{
 					activeTransientToggleDescriptions = new[] { "更多", "More" };
@@ -1756,6 +1833,8 @@ internal sealed class WallpaperContext : ApplicationContext
 					QueuePresentQQPopup(request, visibleBefore, work, "More");
 				}
 				if (!presentsPopup) nextAccessibilityRefresh = DateTime.MinValue;
+				if (!presentsPopup) Diagnostics.Complete(sequence, 0,
+					invoked ? InteractionOutcome.Delivered : InteractionOutcome.TargetMissing);
 				Log("MSAA point control invoked; applied=" + invoked);
 			});
 		}
@@ -1790,6 +1869,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				activeTransientPopupPersistent = true;
 			}
 			Log("Native playlist invoked through its MSAA control; applied=" + invoked);
+			if (!invoked) Accessories.Finish(request, InteractionOutcome.TargetMissing);
 			if (invoked) QueuePresentQQPopup(request, visibleBefore, work, "Native playlist");
 		});
 	}
@@ -1827,6 +1907,9 @@ internal sealed class WallpaperContext : ApplicationContext
 	private void OpenNativeComments(Rectangle work, AccessibleTreeSnapshot snapshot,
 		Func<bool> requestCurrent = null)
 	{
+		if (requestCurrent != null && !requestCurrent()) return;
+		Diagnostics.Begin(Interlocked.Read(ref desktopClickSequence), DesktopClickRoute.SpecialControl,
+			DesktopSpecialAction.ShowNativeComments, -1);
 		Accessories.OpenNativeComments(work,
 			() => TryInvokeQQControlSnapshot(snapshot, "评论", "Comments"), requestCurrent);
 	}

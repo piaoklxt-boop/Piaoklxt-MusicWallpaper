@@ -14,6 +14,10 @@ Preserve the capture-first architecture in [ADR 0001](docs/adr/0001-desktop-capt
 
 ## Interaction invariants
 
+- `AccessoryWindowCoordinator` owns native window discovery, request validity, presentation, input-surface tracking and dismissal. Route both comments and ordinary popups through it; do not reintroduce controller-owned retry loops or surface arrays. Poll for delayed windows without replaying toggle clicks.
+- Unknown or equally plausible popup candidates remain unpresented and produce a diagnostic reason. Refresh published input bounds when an accessory moves; recovery may dismiss only tracked surfaces and the identified comment accessory.
+- `InteractionDiagnostics` stores at most 32 routed interactions in memory using enum/numeric fields. Manual export must not include raw application logs, window text, song/lyric/account text, paths or screenshots. Single cancellation stays quiet; three consecutive failures may notify with a one-minute cooldown. Recovery must not restart QQ Music or issue playback commands.
+
 - Treat the desktop mirror, source player, accessory windows, native popups, and controller overlays as different input owners.
 - The progress preview is a visual surface, not an input-owning controller overlay. It remains non-activating and click-through; the existing hook owns the seek gesture. Sample its skin backdrop once per gesture on the UI thread and coalesce pointer updates there.
 - Resolve QQ Music actions from fresh semantic controls and their live bounds. A source-window move or recovery invalidates cached mappings; duplicate player bars must be filtered to the active group.
