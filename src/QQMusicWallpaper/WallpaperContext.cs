@@ -14,22 +14,6 @@ namespace QQMusicWallpaper;
 
 internal sealed class WallpaperContext : ApplicationContext
 {
-	private sealed class PopupPresentationRequest
-	{
-		public readonly long Sequence;
-		public readonly long Click;
-		public readonly IntPtr Source;
-		public readonly Native.RECT SourceRect;
-		public readonly long Started = Stopwatch.GetTimestamp();
-		public PopupPresentationRequest(long sequence, long click, IntPtr source, Native.RECT sourceRect)
-		{
-			Sequence = sequence;
-			Click = click;
-			Source = source;
-			SourceRect = sourceRect;
-		}
-	}
-
 	private sealed class CommentControlMap
 	{
 		public readonly Rectangle Bounds;
@@ -278,8 +262,17 @@ internal sealed class WallpaperContext : ApplicationContext
 	private volatile AccessibleTreeSnapshot qqAccessibilitySnapshot =
 		new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]);
 
-	private volatile AccessibleControlSurface[] qqPopupControlSurfaces =
-		new AccessibleControlSurface[0];
+	private AccessoryWindowCoordinator accessories;
+	private AccessoryWindowCoordinator Accessories
+	{
+		get
+		{
+			if (accessories == null)
+				Interlocked.CompareExchange(ref accessories, new AccessoryWindowCoordinator(
+					() => qqWindow, () => Interlocked.Read(ref desktopClickSequence), Log), null);
+			return accessories;
+		}
+	}
 
 	private volatile string[] activeTransientToggleDescriptions = new string[0];
 
@@ -294,7 +287,6 @@ internal sealed class WallpaperContext : ApplicationContext
 	private volatile Rectangle[] commentControlAreas = new Rectangle[0];
 	private volatile CommentControlMap commentControlMap;
 	private long desktopClickSequence;
-	private long popupPresentationSequence;
 	private long lastAccessibilitySnapshotTicks;
 	private int commentMissProbeRunning;
 
@@ -1493,7 +1485,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			short delta = (short)(mSLLHOOKSTRUCT.mouseData >> 16);
 			if (AccessibleSurfaceRouter.TryGetWheelTarget(point,
-				qqPopupControlSurfaces, out IntPtr popupWindow))
+				Accessories.Surfaces, out IntPtr popupWindow))
 			{
 				ForwardWheelToWindow(popupWindow, point, delta);
 				return new IntPtr(1);
@@ -1514,7 +1506,7 @@ internal sealed class WallpaperContext : ApplicationContext
 	private bool IsQQInteractionPoint(Point point)
 	{
 		if (AccessibleSurfaceRouter.TryGetSurfaceAtPoint(point,
-			qqPopupControlSurfaces, out var ignoredPopup)) return true;
+			Accessories.Surfaces, out var ignoredPopup)) return true;
 		if (DesktopInputPolicy.IsPointInAny(point, volumeControlAreas) ||
 			DesktopInputPolicy.IsPointInAny(point, playbackModeControlAreas) ||
 			DesktopInputPolicy.IsPointInAny(point, commentControlAreas) ||
@@ -1675,7 +1667,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				if (sequence != Interlocked.Read(ref desktopClickSequence) ||
 					launcher != null && !IsPopupLauncherCurrent(launcher)) return;
 				ResetPointerInteraction();
-				PopupPresentationRequest request = presentPopup ? BeginQQPopupPresentation(sequence) : null;
+				AccessoryWindowCoordinator.PopupPresentationRequest request = presentPopup ? BeginQQPopupPresentation(sequence) : null;
 				if (presentPopup && request == null) return;
 				HashSet<IntPtr> visibleBefore = presentPopup
 					? GetVisibleQQTopLevelWindows() : null;
@@ -1710,7 +1702,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			window.BeginInvoke((Action)delegate
 			{
 				if (sequence != Interlocked.Read(ref desktopClickSequence) || source != qqWindow) return;
-				AccessibleControlSurface[] popupSurfaces = qqPopupControlSurfaces;
+				AccessibleControlSurface[] popupSurfaces = Accessories.Surfaces;
 				if (AccessibleSurfaceRouter.TryGetControlTargetAtPoint(point,
 					popupSurfaces, out IntPtr popupWindow,
 					out AccessibleNodeSnapshot popupTarget))
@@ -1754,7 +1746,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				bool presentsPopup = found && IsMoreControl(target);
 				HashSet<IntPtr> visibleBefore = presentsPopup
 					? GetVisibleQQTopLevelWindows() : null;
-				PopupPresentationRequest request = presentsPopup ? BeginQQPopupPresentation(sequence) : null;
+				AccessoryWindowCoordinator.PopupPresentationRequest request = presentsPopup ? BeginQQPopupPresentation(sequence) : null;
 				bool invoked = found && PostQQControlClick(GetControlCenter(target));
 				if (invoked && presentsPopup && IsQQPopupPresentationCurrent(request))
 				{
@@ -1772,7 +1764,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void QueueToggleNativePlaylist(Rectangle work)
 	{
-		PopupPresentationRequest request = BeginQQPopupPresentation(Interlocked.Read(ref desktopClickSequence));
+		AccessoryWindowCoordinator.PopupPresentationRequest request = BeginQQPopupPresentation(Interlocked.Read(ref desktopClickSequence));
 		ResetPointerInteraction();
 		ThreadPool.QueueUserWorkItem(delegate
 		{
@@ -1835,52 +1827,11 @@ internal sealed class WallpaperContext : ApplicationContext
 	private void OpenNativeComments(Rectangle work, AccessibleTreeSnapshot snapshot,
 		Func<bool> requestCurrent = null)
 	{
-		if (requestCurrent != null && !requestCurrent()) return;
-		IntPtr existingComments = FindQQMusicCommentWindow();
-		if (existingComments != IntPtr.Zero &&
-			TryPositionCommentWindow(existingComments, work))
-		{
-			Log("Existing native comment window restored to the working area.");
-			return;
-		}
-		bool invoked = TryInvokeQQControlSnapshot(snapshot, "评论", "Comments");
-		Log("Native comments invoked through its MSAA control; applied=" + invoked);
-		if (invoked) QueuePresentCommentWindow(work, snapshot, requestCurrent);
+		Accessories.OpenNativeComments(work,
+			() => TryInvokeQQControlSnapshot(snapshot, "评论", "Comments"), requestCurrent);
 	}
 
-	private void QueuePresentCommentWindow(Rectangle work, AccessibleTreeSnapshot snapshot,
-		Func<bool> requestCurrent)
-	{
-		ThreadPool.QueueUserWorkItem(delegate
-		{
-			if (TryPresentCommentWindow(work, 12, requestCurrent)) return;
-			if (requestCurrent != null && !requestCurrent()) return;
-			// QQ keeps hidden popup state internally. A second control action repairs
-			// that state after a prior forced hide or playlist transition.
-			TryInvokeQQControlSnapshot(snapshot, "评论", "Comments");
-			Log("Native comment state required one synchronized retry.");
-			if (TryPresentCommentWindow(work, 20, requestCurrent)) return;
-			Log("Native comment window did not become visible after background click.");
-		});
-	}
 
-	private bool TryPresentCommentWindow(Rectangle work, int attempts, Func<bool> requestCurrent)
-	{
-		for (int attempt = 0; attempt < attempts; attempt++)
-		{
-			if (requestCurrent != null && !requestCurrent()) return false;
-			IntPtr comments = FindQQMusicCommentWindow();
-			if (comments != IntPtr.Zero && Native.IsWindowVisible(comments) &&
-				TryPositionCommentWindow(comments, work))
-			{
-				Log("Native comment window positioned in the working area; hwnd=" +
-					comments.ToInt64());
-				return true;
-			}
-			Thread.Sleep(50);
-		}
-		return false;
-	}
 
 	private bool TryInvokeQQControl(params string[] descriptions)
 	{
@@ -2013,15 +1964,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool TryPositionCommentWindow(IntPtr comments, Rectangle work)
 	{
-		if (!Native.GetWindowRect(comments, out var rect)) return false;
-		Rectangle current = new Rectangle(rect.Left, rect.Top,
-			rect.Right - rect.Left, rect.Bottom - rect.Top);
-		Rectangle target = DesktopInputPolicy.GetVisibleCommentBounds(current, work);
-		Native.ShowWindow(comments, SwShowNoActivate);
-		bool positioned = Native.SetWindowPos(comments, new IntPtr(-1), target.Left,
-			target.Top, target.Width, target.Height, SwpShowWindow | SwpNoActivate);
-		if (positioned) PublishQQPopupSurface(comments, work);
-		return positioned;
+		return Accessories.TryPositionCommentWindow(comments, work);
 	}
 
 	private IntPtr FindQQMusicCommentWindow()
@@ -2031,27 +1974,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private IntPtr FindQQMusicPopupWindow(params string[] titles)
 	{
-		IntPtr result = IntPtr.Zero;
-		Native.GetWindowThreadProcessId(qqWindow, out var sourceProcessId);
-		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
-		{
-			if (candidate == qqWindow) return true;
-			Native.GetWindowThreadProcessId(candidate, out var processId);
-			if (processId != sourceProcessId) return true;
-			StringBuilder title = new StringBuilder(64);
-			Native.GetWindowText(candidate, title, title.Capacity);
-			string value = title.ToString();
-			for (int index = 0; index < titles.Length; index++)
-			{
-				if (string.Equals(value, titles[index], StringComparison.OrdinalIgnoreCase))
-				{
-					result = candidate;
-					return false;
-				}
-			}
-			return true;
-		}, IntPtr.Zero);
-		return result;
+		return Accessories.FindQQMusicPopupWindow(titles);
 	}
 
 	private void HideNativeCommentWindow()
@@ -2092,34 +2015,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				nextAccessibilityRefresh = DateTime.MinValue;
 			});
 		}
-		PostTransientDismissal(qqWindow,
-			DesktopInputPolicy.ResolveTransientDismissalAction(isMainSurface: true));
-		Native.EnumChildWindows(qqWindow, delegate(IntPtr child, IntPtr data)
-		{
-			PostTransientDismissal(child,
-				DesktopInputPolicy.ResolveTransientDismissalAction(isMainSurface: true));
-			return true;
-		}, IntPtr.Zero);
-		Native.GetWindowThreadProcessId(qqWindow, out var sourceProcessId);
-		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
-		{
-			if (candidate == qqWindow || !Native.IsWindowVisible(candidate)) return true;
-			Native.GetWindowThreadProcessId(candidate, out var processId);
-			if (processId == sourceProcessId)
-			{
-				PostTransientDismissal(candidate,
-					DesktopInputPolicy.ResolveTransientDismissalAction(
-						isMainSurface: false));
-			}
-			return true;
-		}, IntPtr.Zero);
-		AccessibleControlSurface[] popupSurfaces = qqPopupControlSurfaces;
-		for (int index = 0; index < popupSurfaces.Length; index++)
-		{
-			PostTransientDismissal(popupSurfaces[index].Window,
-				DesktopInputPolicy.ResolveTransientDismissalAction(
-					isMainSurface: false));
-		}
+		Accessories.DismissNativeSurfaces();
 		try
 		{
 			window.BeginInvoke((Action)delegate
@@ -2132,202 +2028,50 @@ internal sealed class WallpaperContext : ApplicationContext
 		Log("Transient QQ UI dismissed by window/control messages.");
 	}
 
-	private static void PostTransientDismissal(IntPtr target,
-		TransientDismissalAction action)
-	{
-		if (target == IntPtr.Zero || !Native.IsWindow(target)) return;
-		Native.PostMessage(target, WmCancelMode, IntPtr.Zero, IntPtr.Zero);
-		if (action != TransientDismissalAction.CancelAndEscape) return;
-		Native.PostMessage(target, WmKeyDown, new IntPtr(VkEscape), IntPtr.Zero);
-		Native.PostMessage(target, WmKeyUp, new IntPtr(VkEscape), IntPtr.Zero);
-	}
 
 	private HashSet<IntPtr> GetVisibleQQTopLevelWindows()
 	{
-		HashSet<IntPtr> result = new HashSet<IntPtr>();
-		Native.GetWindowThreadProcessId(qqWindow, out var sourceProcessId);
-		Native.EnumWindows(delegate(IntPtr candidate, IntPtr data)
-		{
-			Native.GetWindowThreadProcessId(candidate, out var processId);
-			if (processId == sourceProcessId && Native.IsWindowVisible(candidate))
-				result.Add(candidate);
-			return true;
-		}, IntPtr.Zero);
-		return result;
+		return Accessories.GetVisibleQQTopLevelWindows();
 	}
 
-	private PopupPresentationRequest BeginQQPopupPresentation(long click)
+	private AccessoryWindowCoordinator.PopupPresentationRequest BeginQQPopupPresentation(long click)
 	{
-		if (click != Interlocked.Read(ref desktopClickSequence)) return null;
-		IntPtr source = qqWindow;
-		if (!Native.GetWindowRect(source, out var sourceRect)) return null;
-		return new PopupPresentationRequest(Interlocked.Increment(ref popupPresentationSequence),
-			click, source, sourceRect);
+		return Accessories.BeginQQPopupPresentation(click);
 	}
 
-	private void QueuePresentQQPopup(PopupPresentationRequest request,
+	private void QueuePresentQQPopup(AccessoryWindowCoordinator.PopupPresentationRequest request,
 		HashSet<IntPtr> visibleBefore, Rectangle work, string controlName)
 	{
-		if (!IsQQPopupPresentationCurrent(request)) return;
-		// Already published windows may be closing in response to a toggle. Only
-		// recover a pre-existing visible window when it has not yet been published.
-		HashSet<IntPtr> publishedBefore = new HashSet<IntPtr>();
-		foreach (AccessibleControlSurface surface in qqPopupControlSurfaces)
-			if (visibleBefore.Contains(surface.Window)) publishedBefore.Add(surface.Window);
-		ThreadPool.QueueUserWorkItem(delegate
-		{
-			// Let the posted launcher click be processed before considering a reused
-			// visible window. A hidden result must never be shown again by this worker.
-			Thread.Sleep(100);
-			while ((Stopwatch.GetTimestamp() - request.Started) * 1000.0 / Stopwatch.Frequency < 5000)
-			{
-				if (!IsQQPopupPresentationCurrent(request)) return;
-				HashSet<IntPtr> current = GetVisibleQQTopLevelWindows();
-				IntPtr selected = IntPtr.Zero;
-				int bestScore = 0;
-				foreach (IntPtr candidate in current)
-				{
-					if (candidate == request.Source || publishedBefore.Contains(candidate)) continue;
-					int score = GetQQPopupCandidateScore(candidate, controlName,
-						visibleBefore.Contains(candidate));
-					if (score <= bestScore) continue;
-					selected = candidate;
-					bestScore = score;
-				}
-				if (selected != IntPtr.Zero &&
-					IsQQPopupPresentationCurrent(request) &&
-					Native.IsWindowVisible(selected) && TryPositionQQPopup(selected, work))
-				{
-					if (!IsQQPopupPresentationCurrent(request)) return;
-					PublishQQPopupSurface(selected, work);
-					Log(controlName + " popup positioned in the working area; hwnd=" +
-						selected.ToInt64() + "; reused=" + visibleBefore.Contains(selected));
-					return;
-				}
-				Thread.Sleep(50);
-			}
-			if (IsQQPopupPresentationCurrent(request))
-				Log(controlName + " popup was not observed within the presentation deadline.");
-		});
+		Accessories.QueuePresentQQPopup(request, visibleBefore, work, controlName);
 	}
 
 	private void CancelPendingQQPopupPresentation()
 	{
-		Interlocked.Increment(ref popupPresentationSequence);
+		Accessories.CancelPendingQQPopupPresentation();
 	}
 
-	private bool IsQQPopupPresentationCurrent(PopupPresentationRequest request)
+	private bool IsQQPopupPresentationCurrent(AccessoryWindowCoordinator.PopupPresentationRequest request)
 	{
-		return request != null && request.Sequence == Interlocked.Read(ref popupPresentationSequence) &&
-			request.Click == Interlocked.Read(ref desktopClickSequence) && request.Source == qqWindow &&
-			Native.IsWindow(request.Source) && Native.GetWindowRect(request.Source, out var current) &&
-			current.Left == request.SourceRect.Left && current.Top == request.SourceRect.Top &&
-			current.Right == request.SourceRect.Right && current.Bottom == request.SourceRect.Bottom;
+		return Accessories.IsQQPopupPresentationCurrent(request);
 	}
 
-	private static int GetQQPopupCandidateScore(IntPtr candidate, string controlName,
-		bool wasVisible)
-	{
-		StringBuilder className = new StringBuilder(128);
-		Native.GetClassName(candidate, className, className.Capacity);
-		string windowClass = className.ToString();
-		// TXGFLayerMask is a decoration created before the actual dialog. Taking
-		// it as the input surface ends discovery before any controls exist.
-		if (windowClass != "TXGuiFoundation" && windowClass != "#32770" &&
-			windowClass != "Chrome_WidgetWin_0" && windowClass != "Chrome_WidgetWin_1") return 0;
-		StringBuilder title = new StringBuilder(128);
-		Native.GetWindowText(candidate, title, title.Capacity);
-		string value = title.ToString();
-		if (value == "评论" || string.Equals(value, "Comments", StringComparison.OrdinalIgnoreCase)) return 0;
-		bool expected = IsExpectedQQPopupTitle(value, controlName);
-		if (wasVisible) return expected ? 2 : 0;
-		// Reject a known, unrelated panel even if another QQ action opened it
-		// concurrently. Other newly visible native panels keep their existing
-		// discovery path, including QQ panels with skin-dependent titles.
-		if (!expected && (IsExpectedQQPopupTitle(value, "Accompaniment") ||
-			IsExpectedQQPopupTitle(value, "Audio quality") ||
-			IsExpectedQQPopupTitle(value, "Sound effects") ||
-			IsExpectedQQPopupTitle(value, "Player style") ||
-			IsExpectedQQPopupTitle(value, "Native playlist"))) return 0;
-		return expected ? 3 : 1;
-	}
 
-	private static bool IsExpectedQQPopupTitle(string title, string controlName)
-	{
-		switch (controlName)
-		{
-		case "Accompaniment":
-			return title == "伴唱" || title == "伴奏" || title == "Accompaniment";
-		case "Audio quality":
-			return title == "切换品质" || title == "Change quality" ||
-				title == "伴唱" || title == "伴奏" || title == "Accompaniment";
-		case "Sound effects":
-			return title == "音效" || title == "音效盒子" || title == "QQ音效" || title == "Sound effects";
-		case "Player style":
-			return title == "播放器样式" || title == "Player style";
-		case "Native playlist":
-			return title == "播放队列" || title == "播放列表" || title == "Playlist" || title == "Play queue";
-		default:
-			return false;
-		}
-	}
 
 	private bool TryPositionQQPopup(IntPtr popup, Rectangle work)
 	{
-		if (!Native.GetWindowRect(popup, out var popupRect) ||
-			!Native.GetWindowRect(qqWindow, out var sourceRect)) return false;
-		int width = popupRect.Right - popupRect.Left;
-		int height = popupRect.Bottom - popupRect.Top;
-		if (width < 2 || height < 2) return false;
-		Rectangle current = Rectangle.FromLTRB(popupRect.Left, popupRect.Top,
-			popupRect.Right, popupRect.Bottom);
-		Rectangle source = Rectangle.FromLTRB(sourceRect.Left, sourceRect.Top,
-			sourceRect.Right, sourceRect.Bottom);
-		Rectangle target = DesktopInputPolicy.GetVisiblePopupBounds(current, source, work);
-		Native.ShowWindow(popup, SwShowNoActivate);
-		return Native.SetWindowPos(popup, new IntPtr(-1), target.Left, target.Top,
-			target.Width, target.Height, SwpShowWindow | SwpNoActivate);
+		return Accessories.TryPositionQQPopup(popup, work);
 	}
 
 	private void PublishQQPopupSurface(IntPtr popup, Rectangle work)
 	{
-		if (!Native.IsWindow(popup) ||
-			!Native.GetWindowRect(popup, out var popupRect)) return;
-		Rectangle bounds = Rectangle.Intersect(work, Rectangle.FromLTRB(
-			popupRect.Left, popupRect.Top, popupRect.Right, popupRect.Bottom));
-		if (bounds.Width < 2 || bounds.Height < 2) return;
-		// The top-level bounds are enough to give the popup ownership of pointer
-		// input. Reading the popup's complete MSAA tree here synchronously blocks
-		// QQ Music's Chromium UI thread and makes newly opened panels feel stuck.
-		AccessibleControlSurface surface = new AccessibleControlSurface(popup,
-			bounds, new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]));
-		List<AccessibleControlSurface> updated =
-			new List<AccessibleControlSurface> { surface };
-		AccessibleControlSurface[] current = qqPopupControlSurfaces;
-		for (int index = 0; index < current.Length; index++)
-		{
-			if (current[index].Window == popup ||
-				!Native.IsWindowVisible(current[index].Window)) continue;
-			updated.Add(current[index]);
-		}
-		qqPopupControlSurfaces = updated.ToArray();
+		Accessories.PublishQQPopupSurface(popup, work);
 	}
 
 	private void PruneQQPopupSurfaces()
 	{
-		AccessibleControlSurface[] current = qqPopupControlSurfaces;
-		if (current.Length == 0) return;
-		List<AccessibleControlSurface> visible =
-			new List<AccessibleControlSurface>(current.Length);
-		for (int index = 0; index < current.Length; index++)
-		{
-			AccessibleControlSurface surface = current[index];
-			if (Native.IsWindow(surface.Window) &&
-				Native.IsWindowVisible(surface.Window)) visible.Add(surface);
-		}
-		if (visible.Count == current.Length) return;
-		qqPopupControlSurfaces = visible.ToArray();
-		if (visible.Count == 0)
+		bool hadSurfaces = Accessories.Surfaces.Length > 0;
+		Accessories.PruneQQPopupSurfaces();
+		if (hadSurfaces && Accessories.Surfaces.Length == 0)
 		{
 			activeTransientToggleDescriptions = new string[0];
 			activeTransientLauncher = null;
@@ -2472,7 +2216,7 @@ internal sealed class WallpaperContext : ApplicationContext
 	private void RefreshInteractiveAreasIfDue()
 	{
 		if (!DesktopInputPolicy.ShouldRefreshAccessibility(
-			qqPopupControlSurfaces.Length > 0)) return;
+			Accessories.Surfaces.Length > 0)) return;
 		if (DateTime.UtcNow < nextAccessibilityRefresh ||
 			Interlocked.CompareExchange(ref accessibilityRefreshRunning, 1, 0) != 0)
 		{

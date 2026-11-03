@@ -161,7 +161,6 @@ internal static class Program
         SetField(controller, "enabled", true);
         SetField(controller, "embedded", true);
         SetField(controller, "activeTransientToggleDescriptions", new string[0]);
-        SetField(controller, "qqPopupControlSurfaces", new AccessibleControlSurface[0]);
         SetField(controller, "originalStyle", Native.GetWindowLongPtr(source.Handle, -16).ToInt64() | 0x10000000L);
         SetField(controller, "originalExStyle", Native.GetWindowLongPtr(source.Handle, -20).ToInt64());
         return controller;

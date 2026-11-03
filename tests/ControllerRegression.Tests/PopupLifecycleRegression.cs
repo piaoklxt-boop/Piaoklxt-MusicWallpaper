@@ -256,7 +256,6 @@ internal static class PopupLifecycleRegression
         SetField(controller, "qqWindow", source.Handle);
         SetField(controller, "originalStyle", Native.GetWindowLongPtr(source.Handle, -16).ToInt64() | 0x10000000L);
         SetField(controller, "originalExStyle", Native.GetWindowLongPtr(source.Handle, -20).ToInt64());
-        SetField(controller, "qqPopupControlSurfaces", new AccessibleControlSurface[0]);
         SetField(controller, "enabled", true);
         SetField(controller, "embedded", true);
         Controllers.Add(controller);
@@ -280,7 +279,7 @@ internal static class PopupLifecycleRegression
 
     private static bool Tracks(WallpaperContext controller, IntPtr window)
     {
-        foreach (AccessibleControlSurface surface in (AccessibleControlSurface[])GetField(controller, "qqPopupControlSurfaces"))
+        foreach (AccessibleControlSurface surface in ((AccessoryWindowCoordinator)typeof(WallpaperContext).GetProperty("Accessories", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(controller, null)).Surfaces)
             if (surface.Window == window) return true;
         return false;
     }
