@@ -11,6 +11,15 @@ internal static class Program
 		Rectangle work = new Rectangle(0, 0, 1920, 1040);
 		Rectangle progress = new Rectangle(360, 994, 1200, 12);
 		Point progressCenter = new Point(960, 1000);
+		AssertEqual("native panel stays above a bottom-right launcher",
+			new Rectangle(1480, 540, 414, 360), DesktopInputPolicy.GetPopupBoundsNearLauncher(
+				new Size(414, 360), new Rectangle(1870, 900, 24, 24), work));
+		AssertEqual("top-edge launcher opens below inside the work area",
+			new Rectangle(0, 34, 414, 360), DesktopInputPolicy.GetPopupBoundsNearLauncher(
+				new Size(414, 360), new Rectangle(10, 10, 24, 24), work));
+		AssertEqual("oversized popup is constrained on a negative-coordinate monitor",
+			new Rectangle(-1600, 100, 1600, 900), DesktopInputPolicy.GetPopupBoundsNearLauncher(
+				new Size(2200, 1200), new Rectangle(-50, 900, 24, 24), new Rectangle(-1600, 100, 1600, 900)));
 
 		AssertFalse("progress does not trigger play/pause",
 			DesktopInputPolicy.TryGetMediaKey(progressCenter,

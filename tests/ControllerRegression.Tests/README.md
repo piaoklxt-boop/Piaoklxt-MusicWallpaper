@@ -34,3 +34,5 @@ The executable returns a nonzero exit code on any failed regression. It fails
 safely if the display arrangement provides no offscreen test parking rectangle.
 
 Shared-slot regressions replay visible accompaniment/hidden translation and the reverse, checking both hit classification and actual posted control messages. An owned offscreen accessory verifies that blank mirror space is not registered as a source control; hidden controls without a visible replacement retain the parked-source fallback.
+
+Untitled-panel regressions run the production discovery loop with owned offscreen HWNDs and an injected semantic snapshot matching the observed accompaniment panel. They cover both launchers, bounded capture, owner/class/feature rejection, cancellation during capture, anchor positioning, maintenance and toggle-close. The injected MSAA read does not claim live QQ Music acceptance.

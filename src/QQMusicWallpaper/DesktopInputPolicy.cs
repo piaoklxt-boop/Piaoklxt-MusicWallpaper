@@ -145,6 +145,21 @@ internal sealed class AccessibleTreeSnapshot
 
 	public bool IsEmpty => nodes.Length == 0;
 
+	public bool IsAccompanimentPanel(Rectangle bounds)
+	{
+		bool heading = false, ratio = false, speed = false, pitch = false;
+		foreach (AccessibleNodeSnapshot node in nodes)
+		{
+			if (node.Hidden || node.Role != 41 || !bounds.Contains(Center(node.Bounds))) continue;
+			string label = GetSemanticLabel(node);
+			heading |= label == "伴唱" || label == "伴奏";
+			ratio |= label == "声伴比例";
+			speed |= label.StartsWith("变速：", StringComparison.Ordinal);
+			pitch |= label.StartsWith("变调：", StringComparison.Ordinal);
+		}
+		return heading && ratio && speed && pitch;
+	}
+
 	public Rectangle[] GetInteractiveBounds(Rectangle searchArea,
 		bool includeHidden)
 	{
@@ -431,17 +446,19 @@ internal sealed class AccessibleTreeSnapshot
 internal readonly struct AccessibleControlSurface
 {
 	public AccessibleControlSurface(IntPtr window, Rectangle bounds,
-		AccessibleTreeSnapshot controls)
+		AccessibleTreeSnapshot controls, bool accompanimentIdentity = false)
 	{
 		Window = window;
 		Bounds = bounds;
 		Controls = controls ?? new AccessibleTreeSnapshot(
 			new AccessibleNodeSnapshot[0]);
+		AccompanimentIdentity = accompanimentIdentity;
 	}
 
 	public IntPtr Window { get; }
 	public Rectangle Bounds { get; }
 	public AccessibleTreeSnapshot Controls { get; }
+	public bool AccompanimentIdentity { get; }
 }
 
 internal static class AccessibleSurfaceRouter
@@ -665,6 +682,18 @@ internal static class DesktopInputPolicy
 		}
 		x = Math.Max(workingArea.Left, Math.Min(x, workingArea.Right - width));
 		y = Math.Max(workingArea.Top, Math.Min(y, workingArea.Bottom - height));
+		return new Rectangle(x, y, width, height);
+	}
+
+	public static Rectangle GetPopupBoundsNearLauncher(Size popupSize, Rectangle launcher,
+		Rectangle work)
+	{
+		int width = Math.Min(Math.Max(1, popupSize.Width), Math.Max(1, work.Width));
+		int height = Math.Min(Math.Max(1, popupSize.Height), Math.Max(1, work.Height));
+		int x = Math.Max(work.Left, Math.Min(launcher.Right - width, work.Right - width));
+		int y = launcher.Top - height;
+		if (y < work.Top) y = launcher.Bottom;
+		y = Math.Max(work.Top, Math.Min(y, work.Bottom - height));
 		return new Rectangle(x, y, width, height);
 	}
 

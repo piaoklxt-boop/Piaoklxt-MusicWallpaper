@@ -30,6 +30,10 @@ internal static class PopupLifecycleRegression
         RunCase(run, "source maintenance preserves an unowned popup",
             () => PopupSurvivesParking(false));
         RunCase(run, "new native popup is discovered without activation", NewlyVisiblePopupIsDiscovered);
+        RunCase(run, "untitled accompaniment is identified from its owned panel controls", () => UntitledAccompaniment(false, "Accompaniment"));
+        RunCase(run, "quality restores the same reused untitled accompaniment panel", () => UntitledAccompaniment(true, "Audio quality"));
+        RunCase(run, "untitled semantic proof rejects incomplete unrelated and shadow windows", RejectUnprovenUntitledPanels);
+        RunCase(run, "a click cancelled during semantic capture never presents its panel", CancelDuringPanelCapture);
         RunCase(run, "a matching visible popup can be restored", ExistingVisiblePopupCanBePresented);
         RunCase(run, "cold native popup remains discoverable after one second", DelayedPopupIsDiscovered);
         RunCase(run, "a shadow cannot consume native popup discovery", ShadowDoesNotConsumeDiscovery);
@@ -182,6 +186,91 @@ internal static class PopupLifecycleRegression
                 "Routine source parking put the still-visible popup behind another window.");
             Assert(Tracks(controller, popup.Handle), "A visible popup lost its input surface.");
             AssertFixturesNeverActivated();
+        }
+    }
+
+    private static AccessibleTreeSnapshot AccompanimentControls(Rectangle bounds, bool complete = true)
+    {
+        var labels = new[] { "伴唱", "声伴比例", "变速：0.9", complete ? "变调：0" : "other" };
+        var nodes = new List<AccessibleNodeSnapshot>();
+        for (int i = 0; i < labels.Length; i++)
+            nodes.Add(new AccessibleNodeSnapshot(labels[i], "", "", 41, false, 2,
+                new Rectangle(bounds.Left + 10, bounds.Top + 10 + i * 25, 80, 20)));
+        return new AccessibleTreeSnapshot(nodes.ToArray());
+    }
+
+    private static void UntitledAccompaniment(bool reused, string action)
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(source.Handle, true, "TXGuiFoundation", ""))
+        {
+            int captures = 0;
+            var diagnostics = new InteractionDiagnostics();
+            var coordinator = new AccessoryWindowCoordinator(() => source.Handle, () => 1,
+                _ => { }, diagnostics, w => { captures++; return AccompanimentControls(popup.Bounds); });
+            if (reused) Native.ShowWindow(popup.Handle, 4);
+            var before = coordinator.GetVisibleQQTopLevelWindows();
+            Rectangle anchor = new Rectangle(source.Bounds.Right - 50, source.Bounds.Bottom - 50, 24, 24);
+            var request = coordinator.BeginQQPopupPresentation(1, anchorBounds: anchor);
+            Native.ShowWindow(popup.Handle, 4);
+            coordinator.QueuePresentQQPopup(request, before, source.Bounds, action);
+            Pump(700);
+            coordinator.CancelPendingQQPopupPresentation();
+            Pump(100);
+            Assert(coordinator.Surfaces.Length == 1 && coordinator.Surfaces[0].Window == popup.Handle,
+                "The owned untitled accompaniment panel was left offscreen/unpublished.");
+            Assert(IsTopmost(popup.Handle) && captures == 1, "Panel proof was not bounded to one successful capture.");
+            Assert(popup.Bounds.Right == anchor.Right && popup.Bounds.Bottom == anchor.Top,
+                "The popup did not appear above its actual launcher.");
+            coordinator.PruneQQPopupSurfaces();
+            Assert(coordinator.Surfaces[0].AccompanimentIdentity, "Maintenance lost the panel identity.");
+            // The launcher's toggle has already hidden the window by the time discovery starts.
+            diagnostics.Begin(1, DesktopClickRoute.SpecialControl, DesktopSpecialAction.ClickAccompaniment, 0);
+            before = coordinator.GetVisibleQQTopLevelWindows();
+            request = coordinator.BeginQQPopupPresentation(1);
+            Native.ShowWindow(popup.Handle, 0);
+            coordinator.QueuePresentQQPopup(request, before, source.Bounds, action);
+            Pump(5250);
+            Assert(!Native.IsWindowVisible(popup.Handle) && diagnostics.Export().Contains("Closed"),
+                "A closing untitled panel was resurrected or reported as a timeout.");
+            AssertFixturesNeverActivated();
+        }
+    }
+
+    private static void RejectUnprovenUntitledPanels()
+    {
+        for (int variant = 0; variant < 4; variant++)
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(variant == 1 ? IntPtr.Zero : source.Handle, true,
+            variant == 2 ? "TXGFLayerMask" : "TXGuiFoundation", variant == 3 ? "Unrelated panel" : ""))
+        {
+            int captures = 0;
+            var coordinator = new AccessoryWindowCoordinator(() => source.Handle, () => 1,
+                _ => { }, new InteractionDiagnostics(), w => { captures++; return AccompanimentControls(popup.Bounds, false); });
+            var before = coordinator.GetVisibleQQTopLevelWindows();
+            Native.ShowWindow(popup.Handle, 4);
+            coordinator.QueuePresentQQPopup(coordinator.BeginQQPopupPresentation(1), before, source.Bounds, "Accompaniment");
+            Pump(1800);
+            coordinator.CancelPendingQQPopupPresentation();
+            Pump(100);
+            Assert(coordinator.Surfaces.Length == 0, "An unproven window was presented.");
+            Assert(captures == (variant == 0 ? 3 : 0), "Semantic scans were unbounded or reached an unrelated window.");
+        }
+    }
+
+    private static void CancelDuringPanelCapture()
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(source.Handle, true, "TXGuiFoundation", ""))
+        {
+            long click = 1;
+            var coordinator = new AccessoryWindowCoordinator(() => source.Handle, () => click,
+                _ => { }, new InteractionDiagnostics(), w => { Interlocked.Increment(ref click); return AccompanimentControls(popup.Bounds); });
+            var before = coordinator.GetVisibleQQTopLevelWindows();
+            Native.ShowWindow(popup.Handle, 4);
+            coordinator.QueuePresentQQPopup(coordinator.BeginQQPopupPresentation(1), before, source.Bounds, "Accompaniment");
+            Pump(500);
+            Assert(coordinator.Surfaces.Length == 0 && !IsTopmost(popup.Handle), "Cancelled semantic evidence presented a stale panel.");
         }
     }
 
