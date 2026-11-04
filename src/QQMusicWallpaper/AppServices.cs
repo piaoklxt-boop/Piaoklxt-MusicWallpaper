@@ -12,7 +12,7 @@ namespace QQMusicWallpaper;
 
 internal static class AppInfo
 {
-	public const string Version = "1.2.4";
+	public const string Version = "1.2.5";
 	public const string RepositoryUrl = "https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper";
 	public const string ReleasesUrl = RepositoryUrl + "/releases";
 	public const string LatestReleaseApi =

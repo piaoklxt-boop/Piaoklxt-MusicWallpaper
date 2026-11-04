@@ -34,6 +34,11 @@ internal static class PopupLifecycleRegression
         RunCase(run, "quality restores the same reused untitled accompaniment panel", () => UntitledAccompaniment(true, "Audio quality"));
         RunCase(run, "untitled semantic proof rejects incomplete unrelated and shadow windows", RejectUnprovenUntitledPanels);
         RunCase(run, "a click cancelled during semantic capture never presents its panel", CancelDuringPanelCapture);
+        RunCase(run, "a late native layout cannot move a new panel away from its launcher", () => PanelPlacementLifecycle(0));
+        RunCase(run, "a second launcher reanchors an already tracked shared panel", () => PanelPlacementLifecycle(1));
+        RunCase(run, "a new click ends pending placement correction", () => PanelPlacementLifecycle(2));
+        RunCase(run, "a panel hidden during placement is never shown again", () => PanelPlacementLifecycle(3));
+        RunCase(run, "placement correction expires and later movement remains free", () => PanelPlacementLifecycle(4));
         RunCase(run, "a matching visible popup can be restored", ExistingVisiblePopupCanBePresented);
         RunCase(run, "cold native popup remains discoverable after one second", DelayedPopupIsDiscovered);
         RunCase(run, "a shadow cannot consume native popup discovery", ShadowDoesNotConsumeDiscovery);
@@ -271,6 +276,60 @@ internal static class PopupLifecycleRegression
             coordinator.QueuePresentQQPopup(coordinator.BeginQQPopupPresentation(1), before, source.Bounds, "Accompaniment");
             Pump(500);
             Assert(coordinator.Surfaces.Length == 0 && !IsTopmost(popup.Handle), "Cancelled semantic evidence presented a stale panel.");
+        }
+    }
+
+    private static void PanelPlacementLifecycle(int variant)
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(source.Handle, true, "TXGuiFoundation", ""))
+        {
+            long click = 1;
+            int captures = 0;
+            var coordinator = new AccessoryWindowCoordinator(() => source.Handle, () => click,
+                _ => { }, new InteractionDiagnostics(), w => { captures++; return AccompanimentControls(popup.Bounds); });
+            try
+            {
+                Rectangle anchor = new Rectangle(source.Bounds.Right - 50, source.Bounds.Bottom - 50, 24, 24);
+                var before = coordinator.GetVisibleQQTopLevelWindows();
+                Native.ShowWindow(popup.Handle, 4);
+                coordinator.QueuePresentQQPopup(coordinator.BeginQQPopupPresentation(click, anchorBounds: anchor),
+                    before, source.Bounds, "Accompaniment");
+                Pump(350);
+                Assert(coordinator.Surfaces.Length == 1, "Initial presentation failed.");
+                if (variant == 4) Pump(1800);
+                if (variant == 2) Interlocked.Increment(ref click);
+                if (variant == 3)
+                {
+                    Native.ShowWindow(popup.Handle, 0);
+                    Pump(350);
+                    Assert(!Native.IsWindowVisible(popup.Handle), "Placement correction resurrected a closed panel.");
+                    return;
+                }
+                Rectangle displaced = new Rectangle(source.Bounds.Left + 10, source.Bounds.Bottom - popup.Bounds.Height,
+                    popup.Bounds.Width, popup.Bounds.Height);
+                before = coordinator.GetVisibleQQTopLevelWindows();
+                Native.SetWindowPos(popup.Handle, IntPtr.Zero, displaced.Left, displaced.Top,
+                    displaced.Width, displaced.Height, 0x14u);
+                if (variant == 1)
+                {
+                    Interlocked.Increment(ref click);
+                    anchor.Offset(-180, -40);
+                    coordinator.QueuePresentQQPopup(coordinator.BeginQQPopupPresentation(click, anchorBounds: anchor),
+                        before, source.Bounds, "Audio quality");
+                }
+                Pump(350);
+                if (variant <= 1)
+                {
+                    Assert(popup.Bounds.Right == anchor.Right && popup.Bounds.Bottom == anchor.Top,
+                        "The shared panel remained at the left edge after native layout/reuse.");
+                    Assert(captures == 1, "Repositioning unnecessarily rescanned the known panel.");
+                    Assert(coordinator.Surfaces[0].Bounds == popup.Bounds, "Input bounds did not follow the corrected position.");
+                }
+                else Assert(popup.Bounds == displaced, "Expired/cancelled placement fought a later movement.");
+                AssertFixturesNeverActivated();
+            }
+            finally { coordinator.CancelPendingQQPopupPresentation(); Pump(100); }
         }
     }
 

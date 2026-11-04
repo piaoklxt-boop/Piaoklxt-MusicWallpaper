@@ -91,16 +91,21 @@ internal sealed class AccessoryWindowCoordinator
 		HashSet<IntPtr> visibleBefore, Rectangle work, string controlName)
 	{
 		if (!IsQQPopupPresentationCurrent(request)) return;
-		// Already published windows may be closing in response to a toggle. Only
-		// recover a pre-existing visible window when it has not yet been published.
+		// A tracked panel may close, or a second launcher may reuse and move it.
+		// Re-anchor only a matching still-visible panel for an explicit launcher;
+		// never use ShowWindow to recover a window that the toggle has hidden.
 		HashSet<IntPtr> publishedBefore = new HashSet<IntPtr>();
 		HashSet<IntPtr> matchingPublished = new HashSet<IntPtr>();
+		HashSet<IntPtr> semanticPublished = new HashSet<IntPtr>();
 		foreach (AccessibleControlSurface surface in surfaces)
 			if (visibleBefore.Contains(surface.Window))
 			{
 				publishedBefore.Add(surface.Window);
+				if (surface.AccompanimentIdentity &&
+					IsOwnedUntitledPanel(surface.Window, request.Source, controlName, false))
+					semanticPublished.Add(surface.Window);
 				if (GetQQPopupCandidateScore(surface.Window, controlName, true) > 0 ||
-					surface.AccompanimentIdentity && IsOwnedUntitledPanel(surface.Window, request.Source, controlName, false))
+					semanticPublished.Contains(surface.Window))
 					matchingPublished.Add(surface.Window);
 			}
 		ThreadPool.QueueUserWorkItem(delegate
@@ -121,10 +126,12 @@ internal sealed class AccessoryWindowCoordinator
 				bool tied = false;
 				foreach (IntPtr candidate in current)
 				{
-					if (candidate == request.Source || publishedBefore.Contains(candidate)) continue;
+					if (candidate == request.Source || publishedBefore.Contains(candidate) &&
+						(!request.AnchorBounds.HasValue || !matchingPublished.Contains(candidate))) continue;
 					int score = GetQQPopupCandidateScore(candidate, controlName,
 						visibleBefore.Contains(candidate));
-					if (RecognizeAccompanimentPanel(candidate, request, controlName, probes))
+					if (semanticPublished.Contains(candidate) && IsOwnedUntitledPanel(candidate, request.Source, controlName) ||
+						RecognizeAccompanimentPanel(candidate, request, controlName, probes))
 						score = visibleBefore.Contains(candidate) ? 2 : 3;
 					if (score == 1) { ambiguous = true; continue; }
 					if (score == bestScore && score > 0) { tied = true; continue; }
@@ -137,14 +144,17 @@ internal sealed class AccessoryWindowCoordinator
 				if (!tied && selected != IntPtr.Zero &&
 					IsQQPopupPresentationCurrent(request) &&
 					Native.IsWindowVisible(selected) && (controlName == "Comments"
-						? TryPositionCommentWindow(selected, work) : TryPositionQQPopup(selected, work, request.AnchorBounds)))
+						? TryPositionCommentWindow(selected, work) : TryPositionQQPopup(selected, work, request.AnchorBounds, false)))
 				{
 					if (!IsQQPopupPresentationCurrent(request)) return;
-					PublishQQPopupSurface(selected, work,
-						probes.TryGetValue(selected, out var proof) && proof.Recognized);
+					if (!Native.IsWindowVisible(selected)) continue;
+					bool accompanimentIdentity = semanticPublished.Contains(selected) ||
+						probes.TryGetValue(selected, out var proof) && proof.Recognized;
+					PublishQQPopupSurface(selected, work, accompanimentIdentity);
 					Finish(request, InteractionOutcome.Presented);
 					Log(controlName + " popup positioned in the working area; hwnd=" +
 						selected.ToInt64() + "; reused=" + visibleBefore.Contains(selected));
+					StabilizePopupPosition(request, selected, work, accompanimentIdentity);
 					return;
 				}
 				Thread.Sleep(50);
@@ -291,8 +301,31 @@ internal sealed class AccessoryWindowCoordinator
 		}
 	}
 
-	public bool TryPositionQQPopup(IntPtr popup, Rectangle work, Rectangle? anchorBounds = null)
+	private void StabilizePopupPosition(PopupPresentationRequest request, IntPtr popup,
+		Rectangle work, bool accompanimentIdentity)
 	{
+		if (!request.AnchorBounds.HasValue || !work.IntersectsWith(request.AnchorBounds.Value)) return;
+		long started = Stopwatch.GetTimestamp();
+		while ((Stopwatch.GetTimestamp() - started) * 1000.0 / Stopwatch.Frequency < 1500 &&
+			(Stopwatch.GetTimestamp() - request.Started) * 1000.0 / Stopwatch.Frequency < 5000)
+		{
+			Thread.Sleep(40);
+			if (!IsQQPopupPresentationCurrent(request) || !Native.IsWindowVisible(popup) ||
+				!Native.GetWindowRect(popup, out var rect)) return;
+			Rectangle current = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+			Rectangle target = DesktopInputPolicy.GetPopupBoundsNearLauncher(current.Size, request.AnchorBounds.Value, work);
+			if (current == target) continue;
+			if (!TryPositionQQPopup(popup, work, request.AnchorBounds, false) ||
+				!IsQQPopupPresentationCurrent(request) || !Native.IsWindowVisible(popup)) return;
+			PublishQQPopupSurface(popup, work, accompanimentIdentity);
+			Log("Popup position corrected after native layout; hwnd=" + popup.ToInt64());
+		}
+	}
+
+	public bool TryPositionQQPopup(IntPtr popup, Rectangle work, Rectangle? anchorBounds = null,
+		bool showWindow = true)
+	{
+		if (!showWindow && !Native.IsWindowVisible(popup)) return false;
 		if (!Native.GetWindowRect(popup, out var popupRect) ||
 			!Native.GetWindowRect(qqWindow, out var sourceRect)) return false;
 		int width = popupRect.Right - popupRect.Left;
@@ -305,9 +338,9 @@ internal sealed class AccessoryWindowCoordinator
 		Rectangle target = anchorBounds.HasValue && work.IntersectsWith(anchorBounds.Value)
 			? DesktopInputPolicy.GetPopupBoundsNearLauncher(current.Size, anchorBounds.Value, work)
 			: DesktopInputPolicy.GetVisiblePopupBounds(current, source, work);
-		Native.ShowWindow(popup, SwShowNoActivate);
+		if (showWindow) Native.ShowWindow(popup, SwShowNoActivate);
 		return Native.SetWindowPos(popup, new IntPtr(-1), target.Left, target.Top,
-			target.Width, target.Height, SwpShowWindow | SwpNoActivate);
+			target.Width, target.Height, (showWindow ? SwpShowWindow : 0) | SwpNoActivate);
 	}
 
 	public void PublishQQPopupSurface(IntPtr popup, Rectangle work, bool accompanimentIdentity = false)

@@ -1,8 +1,8 @@
 # Piaoklxt-MusicWallpaper
 
-The local v1.2.4 candidate recognizes owned untitled accompaniment panels and positions native panels near their launcher. It also fixes hidden translation controls stealing accompaniment clicks and independent popup projections turning blank desktop clicks into false failures.
+The local v1.2.5 candidate recognizes owned untitled accompaniment panels and positions native panels near their launcher, including bounded correction after shared-panel reuse or delayed native layout. It also fixes hidden translation controls stealing accompaniment clicks and independent popup projections turning blank desktop clicks into false failures.
 
-The local **v1.2.4 candidate** centralizes native accessory-window lifecycle management and adds tray actions to export interaction diagnostics and recover desktop interaction. A memory-only buffer retains the last 32 routed desktop interactions; exit clears it. Manual exports contain allowlisted technical fields only, excluding song/lyric/account text, window titles, paths and screenshots. No diagnostics are uploaded. Three consecutive failures trigger a tray notice with a one-minute cooldown; isolated cancellation stays quiet. Recovery does not restart QQ Music or change playback. Ambiguous native windows are not presented. This candidate still needs live acceptance; release download links below refer to v1.2.1.
+The local **v1.2.5 candidate** centralizes native accessory-window lifecycle management and adds tray actions to export interaction diagnostics and recover desktop interaction. A memory-only buffer retains the last 32 routed desktop interactions; exit clears it. Manual exports contain allowlisted technical fields only, excluding song/lyric/account text, window titles, paths and screenshots. No diagnostics are uploaded. Three consecutive failures trigger a tray notice with a one-minute cooldown; isolated cancellation stays quiet. Recovery does not restart QQ Music or change playback. Ambiguous native windows are not presented. This candidate still needs live acceptance; release download links below refer to v1.2.1.
 
 [简体中文](README.md)
 

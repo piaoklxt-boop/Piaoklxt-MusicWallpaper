@@ -6,5 +6,5 @@ using System.Runtime.CompilerServices;
 [assembly: AssemblyCompany("piaoklxt")]
 [assembly: AssemblyProduct("Piaoklxt-MusicWallpaper")]
 [assembly: AssemblyCopyright("Copyright © 2026 piaoklxt")]
-[assembly: AssemblyVersion("1.2.4.0")]
-[assembly: AssemblyFileVersion("1.2.4.0")]
+[assembly: AssemblyVersion("1.2.5.0")]
+[assembly: AssemblyFileVersion("1.2.5.0")]
