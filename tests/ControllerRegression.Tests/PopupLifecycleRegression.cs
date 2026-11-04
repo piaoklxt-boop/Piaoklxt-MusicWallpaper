@@ -34,6 +34,7 @@ internal static class PopupLifecycleRegression
         RunCase(run, "quality restores the same reused untitled accompaniment panel", () => UntitledAccompaniment(true, "Audio quality"));
         RunCase(run, "untitled semantic proof rejects incomplete unrelated and shadow windows", RejectUnprovenUntitledPanels);
         RunCase(run, "a click cancelled during semantic capture never presents its panel", CancelDuringPanelCapture);
+        RunCase(run, "redraw invalidates a logically visible offscreen layered panel", LayeredPanelIsRedrawn);
         RunCase(run, "a late native layout cannot move a new panel away from its launcher", () => PanelPlacementLifecycle(0));
         RunCase(run, "a second launcher reanchors an already tracked shared panel", () => PanelPlacementLifecycle(1));
         RunCase(run, "a new click ends pending placement correction", () => PanelPlacementLifecycle(2));
@@ -276,6 +277,28 @@ internal static class PopupLifecycleRegression
             coordinator.QueuePresentQQPopup(coordinator.BeginQQPopupPresentation(1), before, source.Bounds, "Accompaniment");
             Pump(500);
             Assert(coordinator.Surfaces.Length == 0 && !IsTopmost(popup.Handle), "Cancelled semantic evidence presented a stale panel.");
+        }
+    }
+
+    private static void LayeredPanelIsRedrawn()
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(source.Handle, true))
+        {
+            Native.SetWindowLongPtr(popup.Handle, -20,
+                new IntPtr(Native.GetWindowLongPtr(popup.Handle, -20).ToInt64() | 0x80000));
+            Assert(SetLayeredWindowAttributes(popup.Handle, 0, 255, 2), "Layered fixture initialization failed.");
+            Native.ShowWindow(popup.Handle, 4);
+            Pump(100);
+            ValidateRect(popup.Handle, IntPtr.Zero);
+            Assert(!GetUpdateRect(popup.Handle, IntPtr.Zero, false), "Fixture already needs painting.");
+            int before = popup.PaintMessages;
+            var coordinator = new AccessoryWindowCoordinator(() => source.Handle, () => 1,
+                _ => { }, new InteractionDiagnostics());
+            Assert(coordinator.TryPositionQQPopup(popup.Handle, source.Bounds, null, false), "Panel positioning failed.");
+            Assert(popup.PaintMessages > before || GetUpdateRect(popup.Handle, IntPtr.Zero, false),
+                "Positioning did not invalidate the offscreen layered panel for repaint.");
+            AssertFixturesNeverActivated();
         }
     }
 
@@ -604,9 +627,17 @@ internal static class PopupLifecycleRegression
         int style, int left, int top, int width, int height, IntPtr parent, IntPtr menu,
         IntPtr instance, IntPtr parameter);
 
+    [DllImport("user32.dll")]
+    private static extern bool GetUpdateRect(IntPtr window, IntPtr rect, bool erase);
+    [DllImport("user32.dll")]
+    private static extern bool ValidateRect(IntPtr window, IntPtr rect);
+    [DllImport("user32.dll")]
+    private static extern bool SetLayeredWindowAttributes(IntPtr window, uint color, byte alpha, uint flags);
+
     private sealed class FixtureWindow : NativeWindow, IDisposable
     {
         internal int CancelMessages;
+        internal int PaintMessages;
         internal FixtureWindow(IntPtr owner, bool popup, string className = "TXGuiFoundation", string title = null)
         {
             if (RegisteredClasses.Add(className))
@@ -654,6 +685,7 @@ internal static class PopupLifecycleRegression
         protected override void WndProc(ref Message message)
         {
             if (message.Msg == 31) CancelMessages++;
+            if (message.Msg == 15) PaintMessages++;
             if (message.Msg == 0x21) { message.Result = new IntPtr(3); return; }
             base.WndProc(ref message);
         }

@@ -38,3 +38,7 @@ Shared-slot regressions replay visible accompaniment/hidden translation and the 
 Untitled-panel regressions run the production discovery loop with owned offscreen HWNDs and an injected semantic snapshot matching the observed accompaniment panel. They cover both launchers, bounded capture, owner/class/feature rejection, cancellation during capture, anchor positioning, maintenance and toggle-close. The injected MSAA read does not claim live QQ Music acceptance.
 
 Placement lifecycle tests simulate a native layout reset after successful presentation and a second launcher reusing the tracked HWND. They verify corrected input bounds, no additional semantic scan, cancellation on a newer click, no hidden-window resurrection and expiry that permits later movement.
+
+Layered-panel regression initializes an owned offscreen layered fixture, then checks that the production positioning path paints or leaves an invalid update region. It verifies the repaint request, not QQ Music's compositor output. Live screenshot acceptance is separate.
+
+The executable accepts an optional case-insensitive test-name substring (for example, `ControllerRegression.Tests.exe redraw`). No argument runs every case; a filter matching no tests returns exit code 2.

@@ -178,6 +178,9 @@ internal static class Native
 	[DllImport("user32.dll")]
 	public static extern bool SetWindowPos(IntPtr hwnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
 
+	[DllImport("user32.dll", SetLastError = true)]
+	public static extern bool RedrawWindow(IntPtr hwnd, IntPtr updateRect, IntPtr updateRegion, uint flags);
+
 	[DllImport("user32.dll")]
 	public static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
 

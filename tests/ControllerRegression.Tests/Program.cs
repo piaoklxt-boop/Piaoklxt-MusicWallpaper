@@ -15,10 +15,12 @@ internal static class Program
 {
     private static int passed;
     private static int failed;
+    private static string filter;
 
     [STAThread]
-    private static int Main()
+    private static int Main(string[] args)
     {
+        filter = args.Length > 0 ? args[0] : null;
         typeof(AppPaths).GetField("LogPath", BindingFlags.Static | BindingFlags.Public)
             .SetValue(null, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "controller-regression.log"));
         Run("comment invocation uses the active launcher from duplicate player bars",
@@ -53,6 +55,7 @@ internal static class Program
         PopupLifecycleRegression.Register(Run);
         InteractionDiagnosticsRegression.Register(Run);
         Console.WriteLine("Controller regressions: " + passed + " passed, " + failed + " failed.");
+        if (passed + failed == 0) return 2;
         return failed == 0 ? 0 : 1;
     }
 
@@ -519,6 +522,7 @@ internal static class Program
 
     private static void Run(string name, Action test)
     {
+        if (filter != null && name.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) return;
         try { test(); passed++; Console.WriteLine("PASS " + name); }
         catch (Exception error)
         {

@@ -26,6 +26,7 @@ internal sealed class AccessoryWindowCoordinator
 	private IntPtr qqWindow { get { return source(); } }
 	private const int SwShowNoActivate = 4;
 	private const uint SwpShowWindow = 64, SwpNoActivate = 16;
+	private const uint RdwInvalidate = 1, RdwAllChildren = 128, RdwUpdateNow = 256, RdwFrame = 1024;
 	private const uint WmCancelMode = 31, WmKeyDown = 256, WmKeyUp = 257;
 	private const int VkEscape = 27;
 	public AccessoryWindowCoordinator(Func<IntPtr> source, Func<long> click, Action<string> log,
@@ -339,8 +340,14 @@ internal sealed class AccessoryWindowCoordinator
 			? DesktopInputPolicy.GetPopupBoundsNearLauncher(current.Size, anchorBounds.Value, work)
 			: DesktopInputPolicy.GetVisiblePopupBounds(current, source, work);
 		if (showWindow) Native.ShowWindow(popup, SwShowNoActivate);
-		return Native.SetWindowPos(popup, new IntPtr(-1), target.Left, target.Top,
-			target.Width, target.Height, (showWindow ? SwpShowWindow : 0) | SwpNoActivate);
+		if (!Native.SetWindowPos(popup, new IntPtr(-1), target.Left, target.Top,
+			target.Width, target.Height, (showWindow ? SwpShowWindow : 0) | SwpNoActivate)) return false;
+		// A layered QQ panel created beside the parked source can have valid
+		// geometry and WS_VISIBLE while its pixels remain absent from the desktop.
+		// Repaint the panel after moving it, on this discovery worker; moving or
+		// raising the HWND alone does not refresh its layered surface.
+		return Native.RedrawWindow(popup, IntPtr.Zero, IntPtr.Zero,
+			RdwInvalidate | RdwAllChildren | RdwUpdateNow | RdwFrame);
 	}
 
 	public void PublishQQPopupSurface(IntPtr popup, Rectangle work, bool accompanimentIdentity = false)
