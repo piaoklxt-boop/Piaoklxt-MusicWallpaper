@@ -2,17 +2,19 @@
 // @id              windows-11-file-explorer-styler
 // @name            Windows 11 File Explorer Styler
 // @description     Customize the File Explorer with themes contributed by others or create your own
-// @version         1.7
+// @version         1.7-piaoklxt.2
 // @author          m417z
 // @github          https://github.com/m417z
 // @twitter         https://twitter.com/m417z
 // @homepage        https://m417z.com/
 // @include         explorer.exe
-// @architecture    x86-64
+// @architecture    amd64
 // @compilerOptions -lcomctl32 -ld2d1 -ldwmapi -lgdi32 -lmsimg32 -lole32 -loleaut32 -lruntimeobject -lshlwapi -luxtheme
 // ==/WindhawkMod==
 
 // Source code is published under The GNU General Public License v3.0.
+// Piaoklxt modification: a lighter neutral accent-acrylic tint for the content
+// and navigation panes, plus OpaqueBase for a theme-aware solid header brush.
 //
 // For bug reports and feature requests, please open an issue here:
 // https://github.com/ramensoftware/windhawk-mods/issues
@@ -2391,6 +2393,7 @@ struct UnresolvedRules {
 };
 
 struct XamlBlurBrushParams {
+    bool opaqueBase = false;
     float blurAmount;
     winrt::Windows::UI::Color tint;
     std::optional<uint8_t> tintOpacity;
@@ -3213,6 +3216,15 @@ typedef enum MY_D2D1_GAUSSIANBLUR_OPTIMIZATION
 
 ////////////////////////////////////////////////////////////////////////////////
 // XamlBlurBrush.h
+winrt::Windows::UI::Color CompositeHeaderTint(winrt::Windows::UI::Color tint) {
+    // Flatten the original accent over the inactive dark material once, rather
+    // than inserting black backing panels between existing header controls.
+    const auto channel = [alpha = tint.A](uint8_t c) {
+        return static_cast<uint8_t>((c * alpha + 32 * (255 - alpha) + 127) / 255);
+    };
+    return {255, channel(tint.R), channel(tint.G), channel(tint.B)};
+}
+
 class XamlBlurBrush : public Media::XamlCompositionBrushBaseT<XamlBlurBrush>
 {
 public:
@@ -3226,7 +3238,8 @@ public:
                   std::optional<float> noiseOpacity,
                   std::optional<float> noiseDensity,
                   std::optional<winrt::Windows::UI::Color> fallbackColor,
-                  winrt::hstring fallbackThemeResourceKey);
+                  winrt::hstring fallbackThemeResourceKey,
+                  bool opaqueBase);
     ~XamlBlurBrush();
 
     void OnConnected();
@@ -3241,6 +3254,7 @@ private:
     muc::CompositionBrush CreateFallbackBrush();
 
     muc::Compositor m_compositor;
+    bool m_opaqueBase;
     float m_blurAmount;
     winrt::Windows::UI::Color m_tint;
     std::optional<uint8_t> m_tintOpacity;
@@ -4074,9 +4088,11 @@ XamlBlurBrush::XamlBlurBrush(UIElement element,
                              std::optional<float> noiseOpacity,
                              std::optional<float> noiseDensity,
                              std::optional<winrt::Windows::UI::Color> fallbackColor,
-                             winrt::hstring fallbackThemeResourceKey) :
+                             winrt::hstring fallbackThemeResourceKey,
+                             bool opaqueBase) :
     m_compositor(muxh::ElementCompositionPreview::GetElementVisual(element)
                      .Compositor()),
+    m_opaqueBase(opaqueBase),
     m_blurAmount(blurAmount),
     m_tint(tint),
     m_tintOpacity(tintOpacity),
@@ -4390,11 +4406,15 @@ void XamlBlurBrush::OnConnected()
 
 muc::CompositionBrush XamlBlurBrush::CreateFallbackBrush()
 {
+    if (m_opaqueBase) return m_compositor.CreateColorBrush(CompositeHeaderTint(m_tint));
     return m_compositor.CreateColorBrush(m_fallbackColor.value_or(m_tint));
 }
 
 muc::CompositionBrush XamlBlurBrush::CreateEffectBrush()
 {
+    // Theme-resource proxy notifications still refresh m_tint. This mode has
+    // no backdrop sampling, blur, transparency, or focus-dependent fallback.
+    if (m_opaqueBase) return m_compositor.CreateColorBrush(CompositeHeaderTint(m_tint));
     auto backdropBrush = m_compositor.CreateBackdropBrush();
 
     // Rec. 709 luma coefficients, used for saturation and luminosity.
@@ -5651,7 +5671,8 @@ winrt::Windows::Foundation::IInspectable SetOrClearValue(
                 blurBrushParams->tintLuminosityOpacity,
                 blurBrushParams->tintSaturation, blurBrushParams->noiseOpacity,
                 blurBrushParams->noiseDensity, blurBrushParams->fallbackColor,
-                winrt::hstring(blurBrushParams->fallbackThemeResourceKey));
+                winrt::hstring(blurBrushParams->fallbackThemeResourceKey),
+                blurBrushParams->opaqueBase);
         } else {
             Wh_Log(L"Can't get UIElement for blur brush");
             return nullptr;
@@ -5833,6 +5854,7 @@ std::optional<PropertyOverrideValue> ParseNonXamlPropertyOverrideValue(
     }
     substr = substr.substr(0, substr.size() - std::size(kWindhawkBlurSuffix));
 
+    bool opaqueBase = false;
     bool pendingTintColorThemeResource = false;
     bool pendingFallbackColorThemeResource = false;
     std::wstring tintThemeResourceKey;
@@ -6021,6 +6043,10 @@ std::optional<PropertyOverrideValue> ParseNonXamlPropertyOverrideValue(
             continue;
         }
 
+        if (propSubstr == L"OpaqueBase=\"True\"") {
+            opaqueBase = true;
+            continue;
+        }
         throw std::runtime_error("WindhawkBlur: Bad property");
     }
 
@@ -6045,6 +6071,7 @@ std::optional<PropertyOverrideValue> ParseNonXamlPropertyOverrideValue(
     }
 
     return XamlBlurBrushParams{
+        .opaqueBase = opaqueBase,
         .blurAmount = blurAmount,
         .tint = tint,
         .tintOpacity =
@@ -11198,7 +11225,7 @@ void SetAccentBlurBehind(HWND hWnd, bool enable) {
     ACCENT_POLICY accentPolicy = {
         .AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND,
         // AABBGGRR.
-        .GradientColor = 0x3A232323,
+        .GradientColor = static_cast<int>(0xB33D3D3Du),
     };
 
     WINDOWCOMPOSITIONATTRIBDATA data = {

@@ -1,11 +1,15 @@
 # Explorer theme runtime
 
-This directory contains the minimal runtime used by Piaoklxt-MusicWallpaper to apply five File Explorer XAML accent-color rules at 28% opacity over opaque header backgrounds. The file-list content keeps an acrylic backdrop. The bundled mod handles the classic controls' alpha rendering; XAML rules alone only style the header. Opaque backgrounds on the header root and header controls prevent its accent layers from revealing the acrylic behind them.
+This directory contains the minimal runtime used by Piaoklxt-MusicWallpaper to style File Explorer. Named XAML header controls use the original 38% accent tint flattened over the dark inactive-window base into one opaque color. This avoids both focus-dependent backdrop colors and black backing panels between nested controls. The classic file, navigation and preview panes share an accent-acrylic background with a lighter neutral tint.
 
 - Windhawk 1.7.3 runtime: GNU GPL v3, https://github.com/ramensoftware/windhawk/releases/tag/v1.7.3
-- Windows 11 File Explorer Styler 1.7 by m417z: GNU GPL v3, https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-11-file-explorer-styler.wh.cpp
+- Windows 11 File Explorer Styler 1.7 by m417z, with the Piaoklxt tint and opaque-header modifications (1.7-piaoklxt.2): GNU GPL v3, https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-11-file-explorer-styler.wh.cpp
 - The corresponding Windhawk 1.7.3 source is in `licenses/windhawk-1.7.3-source.zip`.
 - The exact mod source distributed with the binary is in `licenses/windows-11-file-explorer-styler.wh.cpp`.
 - The GPL v3 text is in `licenses/GPL-3.0.txt`.
 
 The runtime is an independent process and separate work aggregated with the MIT-licensed Piaoklxt-MusicWallpaper application. No Windhawk UI, compiler, updater, or service is included. Piaoklxt-MusicWallpaper starts it in portable mode with its tray icon hidden.
+
+To rebuild the modified x64 mod, provide a separate extracted Windhawk 1.7.3 developer toolchain to `scripts/build-explorer-styler.ps1 -WindhawkPath <toolchain>`. The script retains compiler logs, emits the mod DLL, and tests the production header parser and opaque-color composition; it does not install or start Windhawk. The compiler and its UI must not be copied into the portable application.
+
+The configuration uses `acrylicblur` (the upstream accent-acrylic path), rather than the focus-dependent system Mica backdrop. Its neutral tint is locally adjusted. The optional `OpaqueBase="True"` extension to `WindhawkBlur` produces an opaque composition color brush, with no backdrop sampling or blur, while retaining the upstream theme-resource change notifications. Existing blur rules are unchanged unless this option is enabled. Header rules match named XAML controls; no screen positions or input interception are added. Confirm both focused and unfocused appearance in Explorer: a successful compositor attachment or DWM property check alone does not establish that a background is visible through classic controls.
