@@ -530,6 +530,9 @@ internal static class PopupLifecycleRegression
         var controller = (WallpaperContext)FormatterServices.GetUninitializedObject(typeof(WallpaperContext));
         GC.SuppressFinalize(controller);
         SetField(controller, "qqWindow", source.Handle);
+        Native.GetWindowThreadProcessId(source.Handle, out uint sourcePid);
+        SetField(controller, "qqWindowProcessIdSource", source.Handle);
+        SetField(controller, "qqWindowProcessId", sourcePid);
         SetField(controller, "originalStyle", Native.GetWindowLongPtr(source.Handle, -16).ToInt64() | 0x10000000L);
         SetField(controller, "originalExStyle", Native.GetWindowLongPtr(source.Handle, -20).ToInt64());
         SetField(controller, "enabled", true);

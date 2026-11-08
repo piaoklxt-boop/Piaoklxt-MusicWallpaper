@@ -56,6 +56,12 @@ internal static class Program
         InteractionDiagnosticsRegression.Register(Run);
         ProcessIdentityRegression.Register(Run);
         Run("hook exceptions release input and unwind callback state", HookExceptionReleasesInput);
+        Run("desktop icon guard never sends synchronous queries on its caller", DesktopIconGuardDoesNotSend);
+        Run("desktop icon cache preserves icons and releases known clear space", DesktopIconCacheRoutesKnownPoints);
+        Run("desktop icon cache rejects expired and moved snapshots", DesktopIconCacheRejectsStale);
+        Run("desktop icon cache never waits for a scan or publishes a cancelled scan", DesktopIconCacheDoesNotWait);
+        Run("desktop icon cache reads real ListView accessibility bounds", DesktopIconCacheReadsListView);
+        Run("source ownership mismatch prevents parking and restoration", SourceIdentityMismatch);
         Console.WriteLine("Controller regressions: " + passed + " passed, " + failed + " failed.");
         if (passed + failed == 0) return 2;
         return failed == 0 ? 0 : 1;
@@ -105,6 +111,146 @@ internal static class Program
             Assert((int)GetField(controller, "activeMouseHookCallbacks") == 0,
                 "A callback after the failure did not complete.");
         }
+    }
+
+    private static void DesktopIconGuardDoesNotSend()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            bool protectedPoint = (bool)Invoke(controller, "IsDesktopIconAt", source.Handle,
+                source.Bounds.Location);
+            Assert(source.IconQueries == 0, "The hook-side guard sent LVM_HITTEST synchronously.");
+            Assert(protectedPoint, "Unknown icon ownership must retain Explorer input.");
+        }
+    }
+
+    private static void SourceIdentityMismatch()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            SetField(controller, "qqWindowProcessId", uint.MaxValue);
+            Rectangle before = source.Bounds;
+            long style = Native.GetWindowLongPtr(source.Handle, -16).ToInt64();
+            Assert(!(bool)Invoke(controller, "KeepSourceMaximizedBehindDesktop"),
+                "A cached HWND belonging to a different PID was parked.");
+            Invoke(controller, "RestoreSourceState", false);
+            Assert(source.Bounds == before && Native.GetWindowLongPtr(source.Handle, -16).ToInt64() == style,
+                "A different process's window was modified.");
+        }
+    }
+
+    private static void DesktopIconCacheRoutesKnownPoints()
+    {
+        using (var source = new TestSourceWindow())
+        using (var other = new TestSourceWindow())
+        {
+            Rectangle icon = new Rectangle(source.Bounds.Left + 10, source.Bounds.Top + 10, 40, 40);
+            Point blank = new Point(icon.Right + 20, icon.Bottom + 20);
+            using (var cache = new DesktopIconCache(hwnd => new[] { icon }, false))
+            {
+                var controller = CreateController(source);
+                SetField(controller, "desktopIcons", cache);
+                cache.RequestRefresh(source.Handle);
+                WaitFor(() => !cache.ProtectsPoint(source.Handle, blank));
+                Assert((bool)Invoke(controller, "IsDesktopIconAt", source.Handle, icon.Location), "Icon lost ownership.");
+                Assert(!(bool)Invoke(controller, "IsDesktopIconAt", source.Handle, blank), "Clear space was blocked.");
+                Assert(cache.ProtectsPoint(other.Handle, blank), "Snapshot accepted a replacement window.");
+                cache.Invalidate();
+                Assert(cache.ProtectsPoint(source.Handle, blank), "Invalidated data still routed input.");
+            }
+        }
+    }
+
+    private static void DesktopIconCacheRejectsStale()
+    {
+        using (var source = new TestSourceWindow())
+        using (var cache = new DesktopIconCache(hwnd => new Rectangle[0], false))
+        {
+            Point blank = source.Bounds.Location;
+            cache.RequestRefresh(source.Handle);
+            WaitFor(() => !cache.ProtectsPoint(source.Handle, blank));
+            object snapshot = typeof(DesktopIconCache).GetField("snapshot", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(cache);
+            var expiry = snapshot.GetType().GetField("Expires", BindingFlags.Instance | BindingFlags.NonPublic);
+            expiry.SetValue(snapshot, DateTime.UtcNow.AddSeconds(-1).Ticks);
+            Assert(cache.ProtectsPoint(source.Handle, blank), "Expired data still routed input.");
+            expiry.SetValue(snapshot, DateTime.UtcNow.AddSeconds(2).Ticks);
+            Rectangle bounds = source.Bounds;
+            Native.SetWindowPos(source.Handle, IntPtr.Zero, bounds.Left - 10, bounds.Top,
+                bounds.Width, bounds.Height, 0x14u);
+            Assert(cache.ProtectsPoint(source.Handle, blank), "Moved-window data still routed input.");
+        }
+    }
+
+    private static void DesktopIconCacheDoesNotWait()
+    {
+        using (var source = new TestSourceWindow())
+        using (var entered = new ManualResetEvent(false))
+        using (var release = new ManualResetEvent(false))
+        {
+            int captures = 0;
+            using (var cache = new DesktopIconCache(hwnd =>
+            {
+                Interlocked.Increment(ref captures);
+                entered.Set();
+                release.WaitOne(3000);
+                return new Rectangle[0];
+            }, false))
+            {
+                try
+                {
+                    cache.RequestRefresh(source.Handle);
+                    Assert(entered.WaitOne(2000), "Background scan did not start.");
+                    for (int i = 0; i < 100; i++)
+                    {
+                        cache.RequestRefresh(source.Handle);
+                        Assert(cache.ProtectsPoint(source.Handle, source.Bounds.Location), "Unknown data routed input.");
+                    }
+                    Assert(captures == 1, "Concurrent scans were queued.");
+                    cache.Invalidate();
+                }
+                finally { release.Set(); }
+                WaitFor(() => (int)typeof(DesktopIconCache).GetField("scanning", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(cache) == 0);
+                Assert(cache.ProtectsPoint(source.Handle, source.Bounds.Location), "Cancelled scan was published.");
+            }
+        }
+    }
+
+    private static void DesktopIconCacheReadsListView()
+    {
+        using (var source = new TestSourceWindow())
+        using (var list = new ListView { View = View.LargeIcon, Size = new Size(400, 400) })
+        {
+            Native.SetParent(list.Handle, source.Handle);
+            list.Items.Add("First fixture icon");
+            list.Items.Add("Second fixture icon");
+            Rectangle[] icons = DesktopIconCache.Capture(list.Handle);
+            Assert(icons != null && icons.Length == 2, "Actual ListView MSAA did not yield both icons.");
+            foreach (Rectangle icon in icons)
+                Assert(icon.Width > 0 && icon.Height > 0 && source.Bounds.IntersectsWith(icon),
+                    "Icon location was not in the fixture's screen space.");
+            var hiddenEditor = new NativeWindow();
+            try
+            {
+                hiddenEditor.CreateHandle(new CreateParams { ClassName = "Edit", Parent = list.Handle,
+                    Style = 0x40000000, Width = 0, Height = 0 });
+                icons = DesktopIconCache.Capture(list.Handle);
+                Assert(icons != null && icons.Length == 2, "A hidden editor invalidated the icon snapshot.");
+            }
+            finally { hiddenEditor.DestroyHandle(); }
+        }
+    }
+
+    private static void WaitFor(Func<bool> ready)
+    {
+        var timer = Stopwatch.StartNew();
+        while (!ready() && timer.ElapsedMilliseconds < 3000)
+        {
+            Application.DoEvents();
+            Thread.Sleep(5);
+        }
+        Assert(ready(), "Timed out waiting for the background fixture.");
     }
 
     private static void MissingCommentDoesNotClick()
@@ -191,6 +337,9 @@ internal static class Program
         var controller = (WallpaperContext)FormatterServices.GetUninitializedObject(typeof(WallpaperContext));
         GC.SuppressFinalize(controller);
         SetField(controller, "qqWindow", source.Handle);
+        Native.GetWindowThreadProcessId(source.Handle, out uint sourcePid);
+        SetField(controller, "qqWindowProcessIdSource", source.Handle);
+        SetField(controller, "qqWindowProcessId", sourcePid);
         SetField(controller, "enabled", true);
         SetField(controller, "embedded", true);
         SetField(controller, "activeTransientToggleDescriptions", new string[0]);
@@ -557,6 +706,7 @@ internal static class Program
 
     private sealed class TestSourceWindow : NativeWindow, IDisposable
     {
+        internal int IconQueries;
         internal readonly List<Point> Clicks = new List<Point>();
         internal Action OnButtonDown;
 
@@ -595,6 +745,12 @@ internal static class Program
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == 0x1012)
+            {
+                IconQueries++;
+                message.Result = new IntPtr(-1);
+                return;
+            }
             if (message.Msg == 0x201)
             {
                 int packed = message.LParam.ToInt32();

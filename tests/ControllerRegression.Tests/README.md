@@ -42,3 +42,11 @@ Placement lifecycle tests simulate a native layout reset after successful presen
 Layered-panel regression initializes an owned offscreen layered fixture, then checks that the production positioning path paints or leaves an invalid update region. It verifies the repaint request, not QQ Music's compositor output. Live screenshot acceptance is separate.
 
 The executable accepts an optional case-insensitive test-name substring (for example, `ControllerRegression.Tests.exe redraw`). No argument runs every case; a filter matching no tests returns exit code 2.
+
+Input-safety regressions call the real mouse callback with a failing payload,
+exercise the controller's desktop-icon guard, and verify that a blocked background
+scan cannot block that guard or publish data after invalidation. Icon fixtures
+cover empty space, expired data, window movement/replacement, real ListView MSAA
+and hidden label editors. These tests use owned windows and synthetic icon bounds;
+they do not install a global mouse hook. Process-identity tests cover unavailable
+processes, access errors, disposal and source-PID mismatch before window mutation.

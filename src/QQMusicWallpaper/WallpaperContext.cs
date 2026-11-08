@@ -153,6 +153,7 @@ internal sealed class WallpaperContext : ApplicationContext
 	private readonly PlaybackModeOverlayForm playbackModeOverlay;
 	private readonly ProgressPreviewForm progressPreview;
 	private readonly ExplorerThemeRuntime explorerThemeRuntime;
+	private readonly DesktopIconCache desktopIcons;
 
 	private readonly NotifyIcon tray;
 
@@ -542,6 +543,8 @@ internal sealed class WallpaperContext : ApplicationContext
 			Toggle();
 		};
 		mouseProc = MouseHookCallback;
+		desktopIcons = new DesktopIconCache();
+		desktopIcons.RequestRefresh(FindDesktopListView());
 		StartMouseHook();
 		SystemEvents.SessionSwitch += OnSessionSwitch;
 		SystemEvents.PowerModeChanged += OnPowerModeChanged;
@@ -717,7 +720,8 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			return;
 		}
-		if (embedded && !Native.IsWindow(qqWindow))
+		desktopIcons?.RequestRefresh(FindDesktopListView());
+		if (embedded && !IsCurrentSourceWindow())
 		{
 			Log("QQ Music source disappeared; recovering.");
 			if (themeContext != null)
@@ -872,6 +876,8 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void CaptureSourceState()
 	{
+		Native.GetWindowThreadProcessId(qqWindow, out qqWindowProcessId);
+		qqWindowProcessIdSource = qqWindow;
 		originalParent = Native.GetParent(qqWindow);
 		originalStyle = Native.GetWindowLongPtr(qqWindow, -16).ToInt64();
 		originalExStyle = Native.GetWindowLongPtr(qqWindow, -20).ToInt64();
@@ -983,7 +989,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		embedded = false;
 		interactionActive = false;
 		interactionTarget = IntPtr.Zero;
-		if (sourceStateCaptured && qqWindow != IntPtr.Zero && Native.IsWindow(qqWindow))
+		if (sourceStateCaptured && IsCurrentSourceWindow())
 		{
 			RestoreSourceState(showQQ: false);
 		}
@@ -1077,7 +1083,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			themeContext.RequestEndWallpaperSession();
 		}
 		StopRenderer();
-		if (!sourceStateCaptured || qqWindow == IntPtr.Zero || !Native.IsWindow(qqWindow))
+		if (!sourceStateCaptured || !IsCurrentSourceWindow())
 		{
 			embedded = false;
 			return;
@@ -1098,6 +1104,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void RestoreSourceState(bool showQQ)
 	{
+		if (!IsCurrentSourceWindow()) return;
 		Native.SetParent(qqWindow, originalParent);
 		Native.SetWindowLongPtr(qqWindow, -16, new IntPtr(originalStyle));
 		Native.SetWindowLongPtr(qqWindow, -20, new IntPtr(originalExStyle));
@@ -1290,7 +1297,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private IntPtr ProcessMouseHookEvent(int code, IntPtr wParam, IntPtr lParam)
 	{
-		if (code < 0 || !enabled || suspended || !embedded || !Native.IsWindow(qqWindow))
+		if (code < 0 || !enabled || suspended || !embedded || !IsCurrentSourceWindow())
 		{
 			return CallNextMouseHook(code, wParam, lParam);
 		}
@@ -1391,6 +1398,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				return CallNextMouseHook(code, wParam, lParam);
 			}
 			lastHoverForwarded = utcNow;
+			desktopIcons?.RequestRefresh();
 			ForwardHoverToSource(point, workingArea);
 			return CallNextMouseHook(code, wParam, lParam);
 		}
@@ -1588,7 +1596,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		activeTransientPopupPersistent = false;
 		ResetPointerInteraction();
 		nextAccessibilityRefresh = DateTime.MinValue;
-		if (enabled && embedded && Native.IsWindow(qqWindow))
+		if (enabled && embedded && IsCurrentSourceWindow())
 		{
 			KeepSourceMaximizedBehindDesktop();
 			RestartMouseHook();
@@ -2704,7 +2712,7 @@ internal sealed class WallpaperContext : ApplicationContext
 	{
 		target = qqWindow;
 		sourcePoint = default(Native.POINT);
-		if (!Native.GetWindowRect(qqWindow, out var sourceRect) || work.Width <= 0 || work.Height <= 0)
+		if (!IsCurrentSourceWindow() || !Native.GetWindowRect(qqWindow, out var sourceRect) || work.Width <= 0 || work.Height <= 0)
 		{
 			return false;
 		}
@@ -2811,7 +2819,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool IsQQMusicWindow(IntPtr hwnd)
 	{
-		if (hwnd == IntPtr.Zero)
+		if (hwnd == IntPtr.Zero || !IsCurrentSourceWindow())
 		{
 			return false;
 		}
@@ -2820,17 +2828,19 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			return false;
 		}
-		if (qqWindowProcessIdSource != qqWindow || qqWindowProcessId == 0)
-		{
-			Native.GetWindowThreadProcessId(qqWindow, out var processId2);
-			qqWindowProcessId = processId2;
-			qqWindowProcessIdSource = qqWindow;
-		}
 		if (qqWindowProcessId != 0)
 		{
 			return processId == qqWindowProcessId;
 		}
 		return false;
+	}
+
+	private bool IsCurrentSourceWindow()
+	{
+		if (qqWindow == IntPtr.Zero || qqWindowProcessIdSource != qqWindow ||
+			qqWindowProcessId == 0) return false;
+		Native.GetWindowThreadProcessId(qqWindow, out uint currentPid);
+		return currentPid == qqWindowProcessId;
 	}
 
 	private IntPtr GetProgmanWindow()
@@ -2845,7 +2855,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool KeepSourceMaximizedBehindDesktop()
 	{
-		if (!(qqWindow == IntPtr.Zero) && Native.IsWindow(qqWindow))
+		if (IsCurrentSourceWindow())
 		{
 			Rectangle bounds = Screen.FromHandle(qqWindow).WorkingArea;
 			long wallpaperStyle = originalStyle & ~(WsCaption | WsThickFrame | WsSysMenu |
@@ -2898,6 +2908,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void PresentSourceWindow()
 	{
+		if (!IsCurrentSourceWindow()) return;
 		CancelPendingQQPopupPresentation();
 		Rectangle bounds = Screen.PrimaryScreen.WorkingArea;
 		Native.ShowWindow(qqWindow, SwShowNoActivate);
@@ -2909,6 +2920,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void AlignSourceToWorkingArea()
 	{
+		if (!IsCurrentSourceWindow()) return;
 		Native.ShowWindow(qqWindow, 3);
 		Native.SetWindowPos(qqWindow, IntPtr.Zero, 0, 0, 0, 0, 83u);
 	}
@@ -2951,47 +2963,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private bool IsDesktopIconAt(IntPtr listView, Point screenPoint)
 	{
-		Native.POINT point = new Native.POINT
-		{
-			X = screenPoint.X,
-			Y = screenPoint.Y
-		};
-		Native.ScreenToClient(listView, ref point);
-		Native.GetWindowThreadProcessId(listView, out var processId);
-		IntPtr intPtr = Native.OpenProcess(1080u, inherit: false, processId);
-		if (intPtr == IntPtr.Zero)
-		{
-			// Explorer may reject cross-process memory access after a restart or
-			// across integrity levels.  Treating that diagnostic failure as an icon
-			// made every desktop point non-interactive.  The precise QQ control-area
-			// check that follows is the safer fallback.
-			return false;
-		}
-		int value = Marshal.SizeOf(typeof(Native.LVHITTESTINFO));
-		IntPtr intPtr2 = Native.VirtualAllocEx(intPtr, IntPtr.Zero, new UIntPtr((uint)value), 12288u, 4u);
-		if (intPtr2 == IntPtr.Zero)
-		{
-			Native.CloseHandle(intPtr);
-			return false;
-		}
-		try
-		{
-			byte[] array = StructureToBytes(new Native.LVHITTESTINFO
-			{
-				pt = point
-			});
-			Native.WriteProcessMemory(intPtr, intPtr2, array, array.Length, out var _);
-			if (Native.SendMessageTimeout(listView, 4114u, IntPtr.Zero, intPtr2, 2u, 100u, out var result) == IntPtr.Zero)
-			{
-				return false;
-			}
-			return (long)result.ToUInt64() >= 0L;
-		}
-		finally
-		{
-			Native.VirtualFreeEx(intPtr, intPtr2, UIntPtr.Zero, 32768u);
-			Native.CloseHandle(intPtr);
-		}
+		return desktopIcons == null || desktopIcons.ProtectsPoint(listView, screenPoint);
 	}
 
 	private static bool IsDesktopRenameActive(IntPtr listView)
@@ -3002,23 +2974,6 @@ internal sealed class WallpaperContext : ApplicationContext
 			return Native.IsWindowVisible(intPtr);
 		}
 		return false;
-	}
-
-	private static byte[] StructureToBytes(object value)
-	{
-		int num = Marshal.SizeOf(value);
-		byte[] array = new byte[num];
-		IntPtr intPtr = Marshal.AllocHGlobal(num);
-		try
-		{
-			Marshal.StructureToPtr(value, intPtr, fDeleteOld: false);
-			Marshal.Copy(intPtr, array, 0, num);
-			return array;
-		}
-		finally
-		{
-			Marshal.FreeHGlobal(intPtr);
-		}
 	}
 
 	private static IntPtr MakeLParam(int x, int y)
@@ -3203,6 +3158,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			}
 			timer.Stop();
 			StopMouseHook();
+			desktopIcons.Dispose();
 			Native.UnregisterHotKey(window.Handle, 20813);
 			SystemEvents.SessionSwitch -= OnSessionSwitch;
 			SystemEvents.PowerModeChanged -= OnPowerModeChanged;
