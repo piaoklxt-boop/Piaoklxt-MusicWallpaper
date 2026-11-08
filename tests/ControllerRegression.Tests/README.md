@@ -50,3 +50,5 @@ cover empty space, expired data, window movement/replacement, real ListView MSAA
 and hidden label editors. These tests use owned windows and synthetic icon bounds;
 they do not install a global mouse hook. Process-identity tests cover unavailable
 processes, access errors, disposal and source-PID mismatch before window mutation.
+Wheel regressions verify screen-space coordinates, signed deltas and explicit
+delivery failure for invalid geometry, missing popups and stale source identity.

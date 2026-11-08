@@ -78,6 +78,18 @@ This is the project record of approaches that failed during development. It cont
 
 ## Input-routing mistakes
 
+### Global input callbacks performed synchronous Explorer queries
+
+- **Failure:** Every desktop button press could wait for a cross-process list-view hit test. Managed exceptions could also leave the native callback without a containment boundary.
+- **Correction:** Contain callback failures, release the event and defer diagnostics through one bounded error slot. Read desktop icon bounds in one background accessibility scan; invalidate on Explorer geometry events and reject expired or replaced-window snapshots. Unknown ownership remains with Explorer. Ignore the hidden label editor exposed alongside real list items.
+- **Guardrail:** Controller tests exercise the real callback and icon guard, blocked and invalidated scans, and a real offscreen ListView with a hidden editor. A read-only Explorer probe establishes local capture compatibility; it does not establish all live player interactions or prove the cause of historical hook gaps.
+
+### A valid cached HWND was treated as sufficient window identity
+
+- **Failure:** A cached source handle with a mismatched process identity could still be parked or restored. Window enumeration also left Process objects undisposed and missed process-exit exceptions.
+- **Correction:** Record the source PID with its captured state and recheck it before window mutation or input mapping. Share a disposing process-name lookup that treats process exit and access failure as unavailable.
+- **Guardrail:** Owned-window regressions reject mismatched source identity without changing styles or geometry. Process-query regressions exercise failure and disposal. PID checks reduce stale-handle risk; they are not atomic with later Win32 calls.
+
 ### Broad coordinate hit targets covered the progress bar
 
 - **Failure:** The bottom play area was too large, so timeline clicks toggled playback or never reached seeking.
