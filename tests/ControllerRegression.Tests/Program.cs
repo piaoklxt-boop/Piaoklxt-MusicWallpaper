@@ -62,6 +62,7 @@ internal static class Program
         Run("desktop icon cache never waits for a scan or publishes a cancelled scan", DesktopIconCacheDoesNotWait);
         Run("desktop icon cache reads real ListView accessibility bounds", DesktopIconCacheReadsListView);
         Run("source ownership mismatch prevents parking and restoration", SourceIdentityMismatch);
+        Run("wheel forwarding preserves screen coordinates and reports failure", WheelForwardingReportsFailure);
         Console.WriteLine("Controller regressions: " + passed + " passed, " + failed + " failed.");
         if (passed + failed == 0) return 2;
         return failed == 0 ? 0 : 1;
@@ -138,6 +139,31 @@ internal static class Program
             Invoke(controller, "RestoreSourceState", false);
             Assert(source.Bounds == before && Native.GetWindowLongPtr(source.Handle, -16).ToInt64() == style,
                 "A different process's window was modified.");
+        }
+    }
+
+    private static void WheelForwardingReportsFailure()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            Rectangle work = new Rectangle(0, 0, 1000, 800);
+            Assert((bool)Invoke(controller, "ForwardWheelToSource", new Point(500, 400), work, (short)-120),
+                "Valid wheel delivery failed.");
+            Application.DoEvents();
+            var expected = new Point(source.Bounds.Left + source.Bounds.Width / 2,
+                source.Bounds.Top + source.Bounds.Height / 2);
+            Assert(source.Wheels.Count == 1 && source.Wheels[0] == expected && source.WheelDelta == -120,
+                "Wheel coordinates or signed delta changed.");
+            Assert(!(bool)Invoke(controller, "ForwardWheelToSource", Point.Empty, Rectangle.Empty, (short)120),
+                "Invalid mapping was reported as delivered.");
+            Assert(!(bool)Invoke(controller, "ForwardWheelToWindow", IntPtr.Zero, Point.Empty, (short)120),
+                "Missing popup was reported as delivered.");
+            SetField(controller, "qqWindowProcessId", uint.MaxValue);
+            Assert(!(bool)Invoke(controller, "ForwardWheelToSource", Point.Empty, work, (short)120),
+                "Stale source ownership was reported as delivered.");
+            Application.DoEvents();
+            Assert(source.Wheels.Count == 1, "A failed wheel route still posted input.");
         }
     }
 
@@ -707,6 +733,8 @@ internal static class Program
     private sealed class TestSourceWindow : NativeWindow, IDisposable
     {
         internal int IconQueries;
+        internal readonly List<Point> Wheels = new List<Point>();
+        internal short WheelDelta;
         internal readonly List<Point> Clicks = new List<Point>();
         internal Action OnButtonDown;
 
@@ -745,6 +773,14 @@ internal static class Program
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == 0x20A)
+            {
+                long packed = message.LParam.ToInt64();
+                Wheels.Add(new Point((short)(packed & 0xffff), (short)((packed >> 16) & 0xffff)));
+                WheelDelta = (short)(message.WParam.ToInt64() >> 16);
+                message.Result = IntPtr.Zero;
+                return;
+            }
             if (message.Msg == 0x1012)
             {
                 IconQueries++;

@@ -1517,16 +1517,16 @@ internal sealed class WallpaperContext : ApplicationContext
 			if (AccessibleSurfaceRouter.TryGetWheelTarget(point,
 				Accessories.Surfaces, out IntPtr popupWindow))
 			{
-				ForwardWheelToWindow(popupWindow, point, delta);
-				return new IntPtr(1);
+				return ForwardWheelToWindow(popupWindow, point, delta)
+					? new IntPtr(1) : CallNextMouseHook(code, wParam, lParam);
 			}
 			if (IsVolumePoint(point))
 			{
 				QueueAdjustVolume(delta);
 				return new IntPtr(1);
 			}
-			ForwardWheelToSource(point, workingArea, delta);
-			return new IntPtr(1);
+			return ForwardWheelToSource(point, workingArea, delta)
+				? new IntPtr(1) : CallNextMouseHook(code, wParam, lParam);
 		}
 		default:
 			return CallNextMouseHook(code, wParam, lParam);
@@ -2771,19 +2771,20 @@ internal sealed class WallpaperContext : ApplicationContext
 		return best != IntPtr.Zero ? best : root;
 	}
 
-	private void ForwardWheelToSource(Point screenPoint, Rectangle work, short delta)
+	private bool ForwardWheelToSource(Point screenPoint, Rectangle work, short delta)
 	{
 		if (TryMapToSource(screenPoint, work, out var target, out var sourcePoint))
 		{
 			long value = (long)((ulong)(ushort)delta << 16);
-			Native.PostMessage(target, WmMouseWheel, new IntPtr(value),
+			return Native.PostMessage(target, WmMouseWheel, new IntPtr(value),
 				MakeLParam(sourcePoint.X, sourcePoint.Y));
 		}
+		return false;
 	}
 
-	private void ForwardWheelToWindow(IntPtr target, Point screenPoint, short delta)
+	private bool ForwardWheelToWindow(IntPtr target, Point screenPoint, short delta)
 	{
-		if (!Native.IsWindow(target)) return;
+		if (!Native.IsWindow(target)) return false;
 		Native.POINT nativePoint = new Native.POINT
 		{
 			X = screenPoint.X,
@@ -2791,7 +2792,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		};
 		target = FindWindowInputTarget(target, nativePoint);
 		long value = (long)((ulong)(ushort)delta << 16);
-		Native.PostMessage(target, WmMouseWheel, new IntPtr(value),
+		return Native.PostMessage(target, WmMouseWheel, new IntPtr(value),
 			MakeLParam(screenPoint.X, screenPoint.Y));
 	}
 
