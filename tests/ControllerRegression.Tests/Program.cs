@@ -54,6 +54,7 @@ internal static class Program
         Run("cancellation during the actual native click cannot publish a popup", () => CancellationDuringNativeClick(false));
         PopupLifecycleRegression.Register(Run);
         InteractionDiagnosticsRegression.Register(Run);
+        ProcessIdentityRegression.Register(Run);
         Run("hook exceptions release input and unwind callback state", HookExceptionReleasesInput);
         Console.WriteLine("Controller regressions: " + passed + " passed, " + failed + " failed.");
         if (passed + failed == 0) return 2;

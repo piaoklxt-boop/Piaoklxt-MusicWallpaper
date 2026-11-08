@@ -333,12 +333,7 @@ namespace QQMusicWallpaperThemeSync
                 GetClassName(hwnd, name, name.Capacity);
                 if (name.ToString() != "CabinetWClass" && name.ToString() != "ExploreWClass") return true;
                 uint pid; GetWindowThreadProcessId(hwnd, out pid);
-                try
-                {
-                    if (Process.GetProcessById((int)pid).ProcessName.Equals("explorer", StringComparison.OrdinalIgnoreCase))
-                        action(hwnd);
-                }
-                catch (ArgumentException) { }
+                if (QQMusicWallpaper.ProcessIdentity.Matches(pid, "explorer")) action(hwnd);
                 return true;
             }, IntPtr.Zero);
         }
@@ -364,8 +359,7 @@ namespace QQMusicWallpaperThemeSync
                 GetClassName(hwnd, name, name.Capacity);
                 if (name.ToString() != "Win32CaptureSample.SampleWindow") return true;
                 uint pid; GetWindowThreadProcessId(hwnd, out pid);
-                try { if (Process.GetProcessById((int)pid).ProcessName == "Piaoklxt-MusicWallpaperRenderer") found = hwnd; }
-                catch (ArgumentException) { }
+                if (QQMusicWallpaper.ProcessIdentity.Matches(pid, "Piaoklxt-MusicWallpaperRenderer")) found = hwnd;
                 return true;
             };
             EnumWindows((hwnd, data) => { visit(hwnd, data); EnumChildWindows(hwnd, visit, IntPtr.Zero); return true; }, IntPtr.Zero);

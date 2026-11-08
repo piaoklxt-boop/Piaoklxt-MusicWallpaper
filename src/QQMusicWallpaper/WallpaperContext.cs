@@ -848,17 +848,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				return true;
 			}
 			Native.GetWindowThreadProcessId(hwnd, out var processId);
-			try
-			{
-				if (!string.Equals(Process.GetProcessById((int)processId).ProcessName, "QQMusic", StringComparison.OrdinalIgnoreCase))
-				{
-					return true;
-				}
-			}
-			catch
-			{
-				return true;
-			}
+			if (!ProcessIdentity.Matches(processId, "QQMusic")) return true;
 			StringBuilder stringBuilder = new StringBuilder(128);
 			Native.GetClassName(hwnd, stringBuilder, stringBuilder.Capacity);
 			if (!string.Equals(stringBuilder.ToString(), "TXGuiFoundation", StringComparison.Ordinal))
