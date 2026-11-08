@@ -54,6 +54,7 @@ internal static class Program
         Run("cancellation during the actual native click cannot publish a popup", () => CancellationDuringNativeClick(false));
         PopupLifecycleRegression.Register(Run);
         InteractionDiagnosticsRegression.Register(Run);
+        Run("hook exceptions release input and unwind callback state", HookExceptionReleasesInput);
         Console.WriteLine("Controller regressions: " + passed + " passed, " + failed + " failed.");
         if (passed + failed == 0) return 2;
         return failed == 0 ? 0 : 1;
@@ -80,6 +81,28 @@ internal static class Program
                 activeTarget.Top - bounds.Top + activeTarget.Height / 2);
             Assert(source.Clicks[0] == expected,
                 "The production invocation clicked the stale player bar instead of the active launcher.");
+        }
+    }
+
+    private static void HookExceptionReleasesInput()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            // A missing payload deterministically fails inside the real event
+            // processor; no global hook or real desktop event is installed.
+            IntPtr result = (IntPtr)Invoke(controller, "MouseHookCallback", 0,
+                new IntPtr(0x201), IntPtr.Zero);
+            Assert(result == IntPtr.Zero, "A failed event must pass to the next hook.");
+            Assert((int)GetField(controller, "activeMouseHookCallbacks") == 0,
+                "Callback accounting leaked after failure.");
+            Assert((int)GetField(controller, "mouseHookStage") == 0,
+                "Callback stage was not reset.");
+            Assert(GetField(controller, "pendingMouseHookException") is Exception,
+                "The callback must retain the failure for deferred diagnostics.");
+            Invoke(controller, "MouseHookCallback", -1, IntPtr.Zero, IntPtr.Zero);
+            Assert((int)GetField(controller, "activeMouseHookCallbacks") == 0,
+                "A callback after the failure did not complete.");
         }
     }
 

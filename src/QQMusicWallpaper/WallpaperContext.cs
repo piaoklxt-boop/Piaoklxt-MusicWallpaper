@@ -175,6 +175,7 @@ internal sealed class WallpaperContext : ApplicationContext
 	private long lastMouseHookDurationTicks;
 	private long maxMouseHookDurationTicks;
 	private int activeMouseHookCallbacks;
+	private Exception pendingMouseHookException;
 	private volatile int mouseHookStage;
 	private long accessibilityCaptureCount;
 	private readonly bool diagnosticMode = Array.IndexOf(
@@ -705,6 +706,12 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private void MaintainWallpaper()
 	{
+		Exception hookFailure = Interlocked.Exchange(ref pendingMouseHookException, null);
+		if (hookFailure != null)
+		{
+			progressPreview?.HidePreview();
+			Log("Mouse hook event failed; input released: " + hookFailure);
+		}
 		ShowInteractionFailureIfNeeded();
 		if (!enabled || suspended)
 		{
@@ -1253,6 +1260,16 @@ internal sealed class WallpaperContext : ApplicationContext
 				Interlocked.Exchange(ref hasMouseHookPoint, 1);
 			}
 			return ProcessMouseHookEvent(code, wParam, lParam);
+		}
+		catch (Exception error)
+		{
+			// Never perform file I/O or queue one worker per failure on the global
+			// input thread. Maintenance drains this single, bounded error slot.
+			Interlocked.Exchange(ref pendingMouseHookException, error);
+			interactionActive = false;
+			progressSeekActive = false;
+			interactionTarget = IntPtr.Zero;
+			return CallNextMouseHook(code, wParam, lParam);
 		}
 		finally
 		{
