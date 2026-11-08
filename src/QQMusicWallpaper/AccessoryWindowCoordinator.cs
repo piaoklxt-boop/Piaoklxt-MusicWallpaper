@@ -48,10 +48,11 @@ internal sealed class AccessoryWindowCoordinator
 		public readonly Native.RECT SourceRect;
 		public readonly Func<bool> AdditionalCurrent;
 		public readonly Rectangle? AnchorBounds;
+		public readonly Point? SourceAnchor;
 		public int Completed;
 		public readonly long Started = Stopwatch.GetTimestamp();
 		public PopupPresentationRequest(long sequence, long click, IntPtr source, Native.RECT sourceRect,
-			Func<bool> additionalCurrent, Rectangle? anchorBounds)
+			Func<bool> additionalCurrent, Rectangle? anchorBounds, Point? sourceAnchor)
 		{
 			Sequence = sequence;
 			Click = click;
@@ -59,6 +60,7 @@ internal sealed class AccessoryWindowCoordinator
 			SourceRect = sourceRect;
 			AdditionalCurrent = additionalCurrent;
 			AnchorBounds = anchorBounds;
+			SourceAnchor = sourceAnchor;
 		}
 	}
 
@@ -79,13 +81,13 @@ internal sealed class AccessoryWindowCoordinator
 	}
 
 	public PopupPresentationRequest BeginQQPopupPresentation(long click, Func<bool> additionalCurrent = null,
-		Rectangle? anchorBounds = null)
+		Rectangle? anchorBounds = null, Point? sourceAnchor = null)
 	{
 		if (click != this.click()) return null;
 		IntPtr source = qqWindow;
 		if (!Native.GetWindowRect(source, out var sourceRect)) return null;
 		return new PopupPresentationRequest(Interlocked.Increment(ref popupPresentationSequence),
-			click, source, sourceRect, additionalCurrent, anchorBounds);
+			click, source, sourceRect, additionalCurrent, anchorBounds, sourceAnchor);
 	}
 
 	public void QueuePresentQQPopup(PopupPresentationRequest request,
@@ -102,7 +104,7 @@ internal sealed class AccessoryWindowCoordinator
 			if (visibleBefore.Contains(surface.Window))
 			{
 				publishedBefore.Add(surface.Window);
-				if (surface.AccompanimentIdentity &&
+				if ((controlName == "Player style" ? surface.PlayerStyleIdentity : surface.AccompanimentIdentity) &&
 					IsOwnedUntitledPanel(surface.Window, request.Source, controlName, false))
 					semanticPublished.Add(surface.Window);
 				if (GetQQPopupCandidateScore(surface.Window, controlName, true) > 0 ||
@@ -142,20 +144,24 @@ internal sealed class AccessoryWindowCoordinator
 					tied = false;
 				}
 				ambiguous |= tied;
+				Point? nativeOffset = !tied && selected != IntPtr.Zero && controlName == "Audio quality"
+					? GetNativeQualityOffset(selected, work, request) : null;
 				if (!tied && selected != IntPtr.Zero &&
 					IsQQPopupPresentationCurrent(request) &&
 					Native.IsWindowVisible(selected) && (controlName == "Comments"
-						? TryPositionCommentWindow(selected, work) : TryPositionQQPopup(selected, work, request.AnchorBounds, false)))
+						? TryPositionCommentWindow(selected, work) : TryPositionQQPopup(selected, work, request.AnchorBounds, false, nativeOffset)))
 				{
 					if (!IsQQPopupPresentationCurrent(request)) return;
 					if (!Native.IsWindowVisible(selected)) continue;
-					bool accompanimentIdentity = semanticPublished.Contains(selected) ||
+					bool semanticIdentity = semanticPublished.Contains(selected) ||
 						probes.TryGetValue(selected, out var proof) && proof.Recognized;
-					PublishQQPopupSurface(selected, work, accompanimentIdentity);
+					bool playerStyleIdentity = semanticIdentity && controlName == "Player style";
+					bool accompanimentIdentity = semanticIdentity && !playerStyleIdentity;
+					PublishQQPopupSurface(selected, work, accompanimentIdentity, playerStyleIdentity);
 					Finish(request, InteractionOutcome.Presented);
 					Log(controlName + " popup positioned in the working area; hwnd=" +
 						selected.ToInt64() + "; reused=" + visibleBefore.Contains(selected));
-					StabilizePopupPosition(request, selected, work, accompanimentIdentity);
+					StabilizePopupPosition(request, selected, work, accompanimentIdentity, playerStyleIdentity, nativeOffset);
 					return;
 				}
 				Thread.Sleep(50);
@@ -208,8 +214,11 @@ internal sealed class AccessoryWindowCoordinator
 
 	private static bool IsOwnedUntitledPanel(IntPtr candidate, IntPtr source, string action, bool requireVisible = true)
 	{
-		if (action != "Accompaniment" && action != "Audio quality") return false;
+		bool style = action == "Player style";
+		if (!style && action != "Accompaniment" && action != "Audio quality") return false;
 		if (candidate == source || requireVisible && !Native.IsWindowVisible(candidate) ||
+			!style && Native.GetAncestor(candidate, 3) != source) return false;
+		if (style && Native.GetAncestor(candidate, 3) != candidate &&
 			Native.GetAncestor(candidate, 3) != source) return false;
 		Native.GetWindowThreadProcessId(source, out var sourcePid);
 		Native.GetWindowThreadProcessId(candidate, out var popupPid);
@@ -236,16 +245,19 @@ internal sealed class AccessoryWindowCoordinator
 			probe.LastAttempt = now;
 			if (Native.GetWindowRect(candidate, out var before))
 			{
-				// This runs only on the discovery worker, for an owned untitled native
-				// panel and at most three times. Never scan the main player per poll.
+				// Bounded semantic proof on the discovery worker. Player style also
+				// uses an unowned top-level window; same PID and controls prove it.
 				var snapshot = captureSnapshot(candidate);
 				if (IsQQPopupPresentationCurrent(request) &&
 					IsOwnedUntitledPanel(candidate, request.Source, action) &&
 					Native.GetWindowRect(candidate, out var after) &&
 					before.Left == after.Left && before.Top == after.Top &&
 					before.Right == after.Right && before.Bottom == after.Bottom)
-					probe.Recognized = snapshot != null && snapshot.IsAccompanimentPanel(
-						Rectangle.FromLTRB(after.Left, after.Top, after.Right, after.Bottom));
+				{
+					Rectangle bounds = Rectangle.FromLTRB(after.Left, after.Top, after.Right, after.Bottom);
+					probe.Recognized = snapshot != null && (action == "Player style"
+						? snapshot.IsPlayerStylePanel(bounds) : snapshot.IsAccompanimentPanel(bounds));
+				}
 			}
 		}
 		return probe.Recognized;
@@ -303,7 +315,7 @@ internal sealed class AccessoryWindowCoordinator
 	}
 
 	private void StabilizePopupPosition(PopupPresentationRequest request, IntPtr popup,
-		Rectangle work, bool accompanimentIdentity)
+		Rectangle work, bool accompanimentIdentity, bool playerStyleIdentity = false, Point? nativeOffset = null)
 	{
 		if (!request.AnchorBounds.HasValue || !work.IntersectsWith(request.AnchorBounds.Value)) return;
 		long started = Stopwatch.GetTimestamp();
@@ -314,17 +326,50 @@ internal sealed class AccessoryWindowCoordinator
 			if (!IsQQPopupPresentationCurrent(request) || !Native.IsWindowVisible(popup) ||
 				!Native.GetWindowRect(popup, out var rect)) return;
 			Rectangle current = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
-			Rectangle target = DesktopInputPolicy.GetPopupBoundsNearLauncher(current.Size, request.AnchorBounds.Value, work);
+			Rectangle target = GetAnchoredPopupBounds(current.Size, request.AnchorBounds.Value, work, nativeOffset);
 			if (current == target) continue;
-			if (!TryPositionQQPopup(popup, work, request.AnchorBounds, false) ||
+			if (!TryPositionQQPopup(popup, work, request.AnchorBounds, false, nativeOffset) ||
 				!IsQQPopupPresentationCurrent(request) || !Native.IsWindowVisible(popup)) return;
-			PublishQQPopupSurface(popup, work, accompanimentIdentity);
+			PublishQQPopupSurface(popup, work, accompanimentIdentity, playerStyleIdentity);
 			Log("Popup position corrected after native layout; hwnd=" + popup.ToInt64());
 		}
 	}
 
+	private static Point? GetNativeQualityOffset(IntPtr popup, Rectangle work, PopupPresentationRequest request)
+	{
+		if (!request.AnchorBounds.HasValue || !Native.GetWindowRect(popup, out var rect)) return null;
+		var title = new StringBuilder(128);
+		Native.GetWindowText(popup, title, title.Capacity);
+		// The accompaniment panel shared with HQ keeps its existing lifecycle.
+		if (title.ToString() != "切换品质" && title.ToString() != "音质" &&
+			title.ToString() != "Audio quality" && title.ToString() != "Change quality") return null;
+		Rectangle native = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+		Rectangle anchor = request.AnchorBounds.Value;
+		if (!work.IntersectsWith(native))
+		{
+			// Preserve QQ's own arrow-to-control relationship. The translation is
+			// derived from the selected semantic control, never a screen constant.
+			if (request.SourceAnchor.HasValue)
+				native.Offset(anchor.Left + anchor.Width / 2 - request.SourceAnchor.Value.X,
+					anchor.Top + anchor.Height / 2 - request.SourceAnchor.Value.Y);
+			else native.Offset(work.Left - request.SourceRect.Left, work.Top - request.SourceRect.Top);
+		}
+		return new Point(native.Right - anchor.Right, native.Bottom - anchor.Top);
+	}
+
+	private static Rectangle GetAnchoredPopupBounds(Size size, Rectangle anchor, Rectangle work, Point? nativeOffset)
+	{
+		if (!nativeOffset.HasValue) return DesktopInputPolicy.GetPopupBoundsNearLauncher(size, anchor, work);
+		int width = Math.Min(Math.Max(1, size.Width), Math.Max(1, work.Width));
+		int height = Math.Min(Math.Max(1, size.Height), Math.Max(1, work.Height));
+		int left = anchor.Right + nativeOffset.Value.X - width;
+		int top = anchor.Top + nativeOffset.Value.Y - height;
+		return new Rectangle(Math.Max(work.Left, Math.Min(left, work.Right - width)),
+			Math.Max(work.Top, Math.Min(top, work.Bottom - height)), width, height);
+	}
+
 	public bool TryPositionQQPopup(IntPtr popup, Rectangle work, Rectangle? anchorBounds = null,
-		bool showWindow = true)
+		bool showWindow = true, Point? nativeOffset = null)
 	{
 		if (!showWindow && !Native.IsWindowVisible(popup)) return false;
 		if (!Native.GetWindowRect(popup, out var popupRect) ||
@@ -337,7 +382,7 @@ internal sealed class AccessoryWindowCoordinator
 		Rectangle source = Rectangle.FromLTRB(sourceRect.Left, sourceRect.Top,
 			sourceRect.Right, sourceRect.Bottom);
 		Rectangle target = anchorBounds.HasValue && work.IntersectsWith(anchorBounds.Value)
-			? DesktopInputPolicy.GetPopupBoundsNearLauncher(current.Size, anchorBounds.Value, work)
+			? GetAnchoredPopupBounds(current.Size, anchorBounds.Value, work, nativeOffset)
 			: DesktopInputPolicy.GetVisiblePopupBounds(current, source, work);
 		if (showWindow) Native.ShowWindow(popup, SwShowNoActivate);
 		if (!Native.SetWindowPos(popup, new IntPtr(-1), target.Left, target.Top,
@@ -350,7 +395,8 @@ internal sealed class AccessoryWindowCoordinator
 			RdwInvalidate | RdwAllChildren | RdwUpdateNow | RdwFrame);
 	}
 
-	public void PublishQQPopupSurface(IntPtr popup, Rectangle work, bool accompanimentIdentity = false)
+	public void PublishQQPopupSurface(IntPtr popup, Rectangle work, bool accompanimentIdentity = false,
+		bool playerStyleIdentity = false)
 	{
 		lock (surfaceSync)
 		{
@@ -365,7 +411,7 @@ internal sealed class AccessoryWindowCoordinator
 		// input. Reading the popup's complete MSAA tree here synchronously blocks
 		// QQ Music's Chromium UI thread and makes newly opened panels feel stuck.
 		AccessibleControlSurface surface = new AccessibleControlSurface(popup,
-			bounds, new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]), accompanimentIdentity);
+			bounds, new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]), accompanimentIdentity, playerStyleIdentity);
 		List<AccessibleControlSurface> updated =
 			new List<AccessibleControlSurface> { surface };
 		AccessibleControlSurface[] current = surfaces;
@@ -401,7 +447,7 @@ internal sealed class AccessoryWindowCoordinator
 				Rectangle bounds = Rectangle.Intersect(work, Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom));
 				if (bounds.Width > 1 && bounds.Height > 1)
 					visible.Add(new AccessibleControlSurface(surface.Window, bounds,
-						new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]), surface.AccompanimentIdentity));
+						new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]), surface.AccompanimentIdentity, surface.PlayerStyleIdentity));
 			}
 		}
 		foreach (AccessibleControlSurface old in current)

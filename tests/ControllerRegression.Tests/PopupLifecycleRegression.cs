@@ -32,6 +32,10 @@ internal static class PopupLifecycleRegression
         RunCase(run, "new native popup is discovered without activation", NewlyVisiblePopupIsDiscovered);
         RunCase(run, "untitled accompaniment is identified from its owned panel controls", () => UntitledAccompaniment(false, "Accompaniment"));
         RunCase(run, "quality restores the same reused untitled accompaniment panel", () => UntitledAccompaniment(true, "Audio quality"));
+        RunCase(run, "unowned untitled player style is recognized from its controls", () => UntitledPlayerStyle(true));
+        RunCase(run, "unowned untitled panel without style choices is rejected", () => UntitledPlayerStyle(false));
+        RunCase(run, "quality popup preserves native launcher alignment during resize", () => QualityPreservesNativePlacement(false));
+        RunCase(run, "quality popup maps its native arrow from the semantic source control", () => QualityPreservesNativePlacement(true));
         RunCase(run, "untitled semantic proof rejects incomplete unrelated and shadow windows", RejectUnprovenUntitledPanels);
         RunCase(run, "a click cancelled during semantic capture never presents its panel", CancelDuringPanelCapture);
         RunCase(run, "redraw invalidates a logically visible offscreen layered panel", LayeredPanelIsRedrawn);
@@ -203,6 +207,85 @@ internal static class PopupLifecycleRegression
             nodes.Add(new AccessibleNodeSnapshot(labels[i], "", "", 41, false, 2,
                 new Rectangle(bounds.Left + 10, bounds.Top + 10 + i * 25, 80, 20)));
         return new AccessibleTreeSnapshot(nodes.ToArray());
+    }
+
+    private static void UntitledPlayerStyle(bool complete)
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(IntPtr.Zero, true, "TXGuiFoundation", ""))
+        {
+            int captures = 0;
+            var coordinator = new AccessoryWindowCoordinator(() => source.Handle, () => 1,
+                _ => { }, new InteractionDiagnostics(), hwnd =>
+                {
+                    captures++;
+                    Rectangle box = popup.Bounds;
+                    return new AccessibleTreeSnapshot(new[] {
+                        new AccessibleNodeSnapshot("播放器样式", "", "", 41, false, 2, new Rectangle(box.Left+10,box.Top+10,100,20)),
+                        new AccessibleNodeSnapshot("经典黑胶", "", "", 41, false, 2, new Rectangle(box.Left+10,box.Top+40,100,20)),
+                        new AccessibleNodeSnapshot(complete ? "简约方形" : "unrelated", "", "", 41, false, 2, new Rectangle(box.Left+10,box.Top+70,100,20)),
+                        new AccessibleNodeSnapshot("", "", "", 43, false, 2, new Rectangle(box.Left+10,box.Top+100,20,20))
+                    });
+                });
+            try
+            {
+                Rectangle anchor = new Rectangle(source.Bounds.Right-50,source.Bounds.Bottom-50,24,24);
+                var before = coordinator.GetVisibleQQTopLevelWindows();
+                Native.ShowWindow(popup.Handle, 4);
+                coordinator.QueuePresentQQPopup(coordinator.BeginQQPopupPresentation(1, anchorBounds: anchor),
+                    before, source.Bounds, "Player style");
+                Pump(700);
+                Assert(coordinator.Surfaces.Length == (complete ? 1 : 0),
+                    complete ? "The real unowned style-panel shape was not presented." : "Unproven panel was presented.");
+                if (complete)
+                {
+                    Assert(captures == 1 && popup.Bounds.Right == anchor.Right && popup.Bounds.Bottom == anchor.Top,
+                        "Style panel was not anchored with a single semantic scan.");
+                    coordinator.PruneQQPopupSurfaces();
+                    Assert(coordinator.Surfaces.Length == 1, "Maintenance lost the style surface.");
+                }
+            }
+            finally { coordinator.CancelPendingQQPopupPresentation(); Pump(100); }
+        }
+    }
+
+    private static void QualityPreservesNativePlacement(bool mapped)
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var popup = new FixtureWindow(IntPtr.Zero, true, "TXGuiFoundation", "切换品质"))
+        {
+            var coordinator = new AccessoryWindowCoordinator(() => source.Handle, () => 1,
+                _ => { }, new InteractionDiagnostics());
+            try
+            {
+                Rectangle work = source.Bounds;
+                if (mapped) work.Offset(-work.Width-200, 0);
+                Rectangle anchor = new Rectangle(work.Right-160, work.Bottom-50, 24, 24);
+                Rectangle native = new Rectangle(anchor.Right+40-popup.Bounds.Width,
+                    anchor.Top-7-popup.Bounds.Height, popup.Bounds.Width, popup.Bounds.Height);
+                Rectangle initial = native;
+                Point sourceAnchor = new Point(anchor.Left+anchor.Width/2, anchor.Top+anchor.Height/2);
+                if (mapped)
+                {
+                    initial.Offset(source.Bounds.Left-work.Left, source.Bounds.Top-work.Top);
+                    sourceAnchor.Offset(source.Bounds.Left-work.Left, source.Bounds.Top-work.Top);
+                }
+                Native.SetWindowPos(popup.Handle, IntPtr.Zero, initial.Left, initial.Top, initial.Width, initial.Height, 0x14u);
+                var before = coordinator.GetVisibleQQTopLevelWindows();
+                Native.ShowWindow(popup.Handle, 4);
+                coordinator.QueuePresentQQPopup(coordinator.BeginQQPopupPresentation(1, anchorBounds: anchor, sourceAnchor: sourceAnchor),
+                    before, work, "Audio quality");
+                Pump(350);
+                Assert(coordinator.Surfaces.Length == 1 && popup.Bounds == native,
+                    "The popup's native arrow offset was replaced with right-edge alignment.");
+                Native.SetWindowPos(popup.Handle, IntPtr.Zero, native.Left-20, native.Top+20,
+                    native.Width+40, native.Height+20, 0x14u);
+                Pump(200);
+                Assert(popup.Bounds.Right == native.Right && popup.Bounds.Bottom == native.Bottom,
+                    "A late resize changed the launcher-relative arrow placement.");
+            }
+            finally { coordinator.CancelPendingQQPopupPresentation(); Pump(100); }
+        }
     }
 
     private static void UntitledAccompaniment(bool reused, string action)

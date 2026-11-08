@@ -127,6 +127,20 @@ This is the project record of approaches that failed during development. It cont
 
 ## Popup and accessory-window mistakes
 
+### Player style had neither a title nor a native owner
+
+- **Failure:** Invoking the player-style control flashed QQ Music in the taskbar while the actual panel remained offscreen.
+- **Why it failed:** Title matching could not identify the panel, and the accompaniment-specific semantic probe required an owned window.
+- **Correction:** Allow the same-process unowned native panel only for the player-style action, with semantic proof consisting of the player-style heading, multiple distinct style choices and selection controls. Retain that identity through surface maintenance and reuse.
+- **Guardrail:** Production discovery fixtures cover the real unowned shape and reject incomplete proof; unrelated unowned accompaniment candidates remain rejected.
+
+### Right-edge alignment displaced the quality popup's arrow
+
+- **Failure:** The quality popup appeared beside HQ, but its arrow pointed towards a neighboring launcher.
+- **Why it failed:** Aligning the outer popup edge to the semantic button discarded the native arrow inset and gap.
+- **Correction:** Translate the native popup using the selected source control and its desktop counterpart, then retain that relative offset through delayed resize. Clamp only at work-area edges; do not hardcode a screen location or an arrow inset.
+- **Guardrail:** Offscreen window fixtures verify native-relative alignment, source-to-desktop mapping and late resizing. The accompaniment panel shared with HQ keeps its separate placement behavior.
+
 ### Independent comment retries escaped ordinary popup cancellation
 
 - **Failure:** Comments used a separate polling loop and could replay a toggle while waiting for a delayed window; cancellation and tracked input bounds were managed separately from other native popups.

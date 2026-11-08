@@ -52,3 +52,8 @@ they do not install a global mouse hook. Process-identity tests cover unavailabl
 processes, access errors, disposal and source-PID mismatch before window mutation.
 Wheel regressions verify screen-space coordinates, signed deltas and explicit
 delivery failure for invalid geometry, missing popups and stale source identity.
+
+Player-style fixtures reproduce an unowned untitled panel and require a heading,
+multiple distinct style choices and a selection button before presentation.
+Quality fixtures retain the native arrow offset through source-to-desktop mapping
+and delayed resize; they do not infer the arrow from a fixed pixel inset.

@@ -160,6 +160,24 @@ internal sealed class AccessibleTreeSnapshot
 		return heading && ratio && speed && pitch;
 	}
 
+	public bool IsPlayerStylePanel(Rectangle bounds)
+	{
+		bool heading = false, button = false;
+		var choices = new HashSet<string>();
+		foreach (AccessibleNodeSnapshot node in nodes)
+		{
+			if (node.Hidden || !bounds.Contains(Center(node.Bounds))) continue;
+			button |= node.Role == 43;
+			if (node.Role != 41) continue;
+			string label = GetSemanticLabel(node);
+			heading |= label == "播放器样式";
+			if (label == "经典黑胶" || label == "简约方形" || label == "透明彩胶" ||
+				label == "简约歌词" || label == "歌手写真" || label == "动感波光" ||
+				label == "万花筒" || label == "多巴胺" || label == "简约晕染") choices.Add(label);
+		}
+		return heading && button && choices.Count >= 2;
+	}
+
 	public Rectangle[] GetInteractiveBounds(Rectangle searchArea,
 		bool includeHidden)
 	{
@@ -446,19 +464,21 @@ internal sealed class AccessibleTreeSnapshot
 internal readonly struct AccessibleControlSurface
 {
 	public AccessibleControlSurface(IntPtr window, Rectangle bounds,
-		AccessibleTreeSnapshot controls, bool accompanimentIdentity = false)
+		AccessibleTreeSnapshot controls, bool accompanimentIdentity = false, bool playerStyleIdentity = false)
 	{
 		Window = window;
 		Bounds = bounds;
 		Controls = controls ?? new AccessibleTreeSnapshot(
 			new AccessibleNodeSnapshot[0]);
 		AccompanimentIdentity = accompanimentIdentity;
+		PlayerStyleIdentity = playerStyleIdentity;
 	}
 
 	public IntPtr Window { get; }
 	public Rectangle Bounds { get; }
 	public AccessibleTreeSnapshot Controls { get; }
 	public bool AccompanimentIdentity { get; }
+	public bool PlayerStyleIdentity { get; }
 }
 
 internal static class AccessibleSurfaceRouter

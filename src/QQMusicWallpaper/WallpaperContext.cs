@@ -1752,7 +1752,8 @@ internal sealed class WallpaperContext : ApplicationContext
 				ResetPointerInteraction();
 				AccessoryWindowCoordinator.PopupPresentationRequest request = presentPopup
 					? Accessories.BeginQQPopupPresentation(sequence,
-						anchorBounds: launcher == null ? (Rectangle?)null : launcher.Bounds) : null;
+						anchorBounds: launcher == null ? (Rectangle?)null : launcher.Bounds,
+						sourceAnchor: launcher == null ? (Point?)null : launcher.ActionPoint) : null;
 				if (presentPopup && request == null) return;
 				HashSet<IntPtr> visibleBefore = presentPopup
 					? GetVisibleQQTopLevelWindows() : null;
