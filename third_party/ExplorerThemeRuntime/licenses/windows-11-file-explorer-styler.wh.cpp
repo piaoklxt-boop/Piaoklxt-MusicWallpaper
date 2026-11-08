@@ -2,7 +2,7 @@
 // @id              windows-11-file-explorer-styler
 // @name            Windows 11 File Explorer Styler
 // @description     Customize the File Explorer with themes contributed by others or create your own
-// @version         1.7-piaoklxt.2
+// @version         1.7-piaoklxt.3
 // @author          m417z
 // @github          https://github.com/m417z
 // @twitter         https://twitter.com/m417z
@@ -1717,6 +1717,9 @@ enum class XamlDiagnosticsHandling {
 };
 
 struct {
+    int acrylicOpacity = 179;
+    int acrylicGray = 61;
+    bool sidebarAcrylic = true;
     std::optional<BackgroundTranslucentEffect> backgroundTranslucentEffect;
     BackgroundTranslucentEffectRegion backgroundTranslucentEffectRegion;
     int explorerFrameContainerHeight;
@@ -10168,10 +10171,41 @@ bool IsWindowBackgroundBrush(HDC hdc, HBRUSH hbr) {
     return color == GetSysColor(COLOR_WINDOW);
 }
 
+bool IsNavigationBackgroundDC(HDC hdc) {
+    if (g_settings.sidebarAcrylic) return false;
+    HWND h = WindowFromDC(hdc);
+    if (!h) {
+        const DCWnd* memory = GetMemoryDCWnd(hdc);
+        if (memory) h = memory->hWnd;
+    }
+    if (!h || !IsFileExplorerWindowPart(h)) return false;
+    for (int depth = 0; h && depth < 32; ++depth, h = GetParent(h)) {
+        WCHAR name[64];
+        if (GetClassNameW(h, name, ARRAYSIZE(name)) && !wcscmp(name, L"NamespaceTreeControl")) return true;
+    }
+    return false;
+}
+
+COLORREF NavigationBaseColor() {
+    thread_local ULONGLONG sampled;
+    thread_local DWORD light = 0;
+    ULONGLONG now = GetTickCount64();
+    if (!sampled || now - sampled > 1000) {
+        DWORD size = sizeof(light), next = 0;
+        if (RegGetValueW(HKEY_CURRENT_USER,
+            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+            L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &next, &size) == ERROR_SUCCESS) light = next;
+        sampled = now;
+    }
+    return light ? RGB(255, 255, 255) : RGB(32, 32, 32);
+}
+
+bool FillRectWithAlpha(HDC hdc, const RECT* rect, COLORREF color, BYTE alpha);
 using FillRect_t = decltype(&FillRect);
 FillRect_t FillRect_Original;
 int WINAPI FillRect_Hook(HDC hDC, const RECT* lprc, HBRUSH hbr) {
     if (IsEntireWindowEffectDC(hDC) && IsWindowBackgroundBrush(hDC, hbr)) {
+        if (IsNavigationBackgroundDC(hDC) && FillRectWithAlpha(hDC, lprc, NavigationBaseColor(), 255)) return 1;
         hbr = (HBRUSH)GetStockObject(BLACK_BRUSH);
     }
 
@@ -10184,6 +10218,8 @@ BOOL WINAPI PatBlt_Hook(HDC hdc, int x, int y, int w, int h, DWORD rop) {
     if (rop == PATCOPY && IsEntireWindowEffectDC(hdc) &&
         IsWindowBackgroundBrush(hdc,
                                 (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH))) {
+        RECT region{x, y, x + w, y + h};
+        if (IsNavigationBackgroundDC(hdc) && FillRectWithAlpha(hdc, &region, NavigationBaseColor(), 255)) return TRUE;
         HGDIOBJ prevBrush = SelectObject(hdc, GetStockObject(BLACK_BRUSH));
         BOOL result = PatBlt_Original(hdc, x, y, w, h, rop);
         SelectObject(hdc, prevBrush);
@@ -11225,7 +11261,8 @@ void SetAccentBlurBehind(HWND hWnd, bool enable) {
     ACCENT_POLICY accentPolicy = {
         .AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND,
         // AABBGGRR.
-        .GradientColor = static_cast<int>(0xB33D3D3Du),
+        .GradientColor = static_cast<int>((static_cast<unsigned>(g_settings.acrylicOpacity) << 24) |
+            (g_settings.acrylicGray * 0x010101u)),
     };
 
     WINDOWCOMPOSITIONATTRIBDATA data = {
@@ -11813,7 +11850,19 @@ void StopStatsTimer() {
     }
 }
 
+int ReadAppearanceSetting(PCWSTR name, int fallback, int minimum, int maximum) {
+    PCWSTR text = Wh_GetStringSetting(name);
+    wchar_t* end = nullptr;
+    long value = text && *text ? wcstol(text, &end, 10) : fallback;
+    if (text && *text && (!end || *end)) value = fallback;
+    Wh_FreeStringSetting(text);
+    return static_cast<int>(std::clamp(value, static_cast<long>(minimum), static_cast<long>(maximum)));
+}
+
 void LoadSettings() {
+    g_settings.acrylicOpacity = ReadAppearanceSetting(L"piaoklxtAcrylicOpacity", 179, 0, 255);
+    g_settings.acrylicGray = ReadAppearanceSetting(L"piaoklxtAcrylicGray", 61, 0, 200);
+    g_settings.sidebarAcrylic = ReadAppearanceSetting(L"piaoklxtSidebarAcrylic", 1, 0, 1) != 0;
     PCWSTR backgroundTranslucentEffectRegion =
         Wh_GetStringSetting(L"backgroundTranslucentEffectRegion");
     g_settings.backgroundTranslucentEffectRegion =
