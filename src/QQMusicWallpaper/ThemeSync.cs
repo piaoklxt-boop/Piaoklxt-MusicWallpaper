@@ -157,6 +157,40 @@ namespace QQMusicWallpaperThemeSync
         public void RequestBeginWallpaperSession() { Post(BeginWallpaperSession); }
         public void RequestEndWallpaperSession() { Post(EndWallpaperSession); }
 
+        public void RequestApply(QQMusicWallpaper.ThemePreferences preferences, Action<string> completed)
+        {
+            Post(() =>
+            {
+                string error = null;
+                try
+                {
+                    lock (updateLock)
+                    {
+                        bool wasEnabled = enabled;
+                        if (wasEnabled && !preferences.Enabled) ThemeRegistry.Restore(backupPath);
+                        if (wasEnabled && colorizeShell && !preferences.ColorizeShell) ThemeRegistry.RestoreShell(backupPath);
+                        if (wasEnabled && (darkApps || matchBrightness) && !preferences.DarkApps && !preferences.MatchBrightness)
+                            ThemeRegistry.RestoreApplicationBrightness(backupPath);
+                        enabled = preferences.Enabled;
+                        matchBrightness = preferences.MatchBrightness;
+                        colorizeShell = preferences.ColorizeShell;
+                        darkApps = preferences.DarkApps;
+                        if (!wasEnabled && enabled && wallpaperSessionActive) ThemeRegistry.Backup(backupPath);
+                        SaveSettings();
+                        lastColor = Color.Empty;
+                        lastLight = null;
+                        UpdateColor(true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    QQMusicWallpaper.RuntimeLog.Write("Theme preferences apply failed: " + ex.Message);
+                    error = "主题同步设置未能完整应用，请重试。";
+                }
+                if (completed != null) completed(error);
+            });
+        }
+
         public void Shutdown()
         {
             timer.Dispose();

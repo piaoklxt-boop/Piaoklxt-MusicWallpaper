@@ -338,9 +338,11 @@ internal sealed class WallpaperContext : ApplicationContext
 	private bool missingQQPromptShown;
 
 	private bool checkingForUpdates;
+	private ControlPanelForm controlPanel;
 
-	public WallpaperContext()
+	public WallpaperContext(bool startSuspended = false)
 	{
+		suspended = startSuspended;
 		AppPaths.Ensure();
 		settings = AppSettings.Load();
 		qqPath = QQMusicLocator.Detect(settings);
@@ -366,28 +368,17 @@ internal sealed class WallpaperContext : ApplicationContext
 		{
 			Log("Could not register Ctrl+Alt+U; Win32=" + Marshal.GetLastWin32Error());
 		}
-		ContextMenu contextMenu = new ContextMenu
-		{
-			MenuItems =
-			{
-				{
-					L10n.Text("切换动态壁纸 (Ctrl+Alt+U)", "Toggle wallpaper (Ctrl+Alt+U)"),
-					(EventHandler)delegate
-					{
-						Log("Tray menu toggle.");
-						Toggle();
-					}
-				},
-				{
-					L10n.Text("恢复 QQ 音乐窗口", "Restore QQ Music window"),
-					(EventHandler)delegate
-					{
-						Log("Tray menu restore window.");
-						DisableWallpaper(showQQ: true);
-					}
-				}
-			}
-		};
+        ContextMenu contextMenu = new ContextMenu();
+        var wallpaperItem = new MenuItem(L10n.Text("暂停壁纸并恢复 QQ 音乐 (Ctrl+Alt+U)", "Pause wallpaper and restore QQ Music (Ctrl+Alt+U)"), delegate { Toggle(); });
+        contextMenu.MenuItems.Add(wallpaperItem);
+        contextMenu.Popup += delegate
+        {
+            wallpaperItem.Text = enabled
+                ? L10n.Text("暂停壁纸并恢复 QQ 音乐 (Ctrl+Alt+U)", "Pause wallpaper and restore QQ Music (Ctrl+Alt+U)")
+                : L10n.Text("启用动态壁纸 (Ctrl+Alt+U)", "Enable wallpaper (Ctrl+Alt+U)");
+            wallpaperItem.Checked = enabled;
+        };
+        contextMenu.MenuItems.Add(L10n.Text("控制面板…", "Control panel…"), delegate { ShowControlPanel(); });
 		MenuItem item = new MenuItem(L10n.Text("QQ 音乐", "QQ Music"))
 		{
 			MenuItems =
@@ -416,10 +407,6 @@ internal sealed class WallpaperContext : ApplicationContext
 			}
 		};
 		contextMenu.MenuItems.Add(item);
-		contextMenu.MenuItems.Add(L10n.Text("导出交互诊断…", "Export interaction diagnostics…"),
-			delegate { ExportInteractionDiagnostics(); });
-		contextMenu.MenuItems.Add(L10n.Text("恢复桌面交互", "Recover desktop interaction"),
-			delegate { RecoverDesktopInteraction(); });
 		MenuItem startupItem = null;
 		startupItem = new MenuItem(L10n.Text("开机自动启动", "Start with Windows"), delegate
 		{
@@ -433,89 +420,9 @@ internal sealed class WallpaperContext : ApplicationContext
 			Checked = StartupManager.IsEnabled()
 		};
 		contextMenu.MenuItems.Add(startupItem);
-		contextMenu.MenuItems.Add(L10n.Text("检查更新", "Check for updates"), delegate
-		{
-			CheckForUpdates(userInitiated: true);
-		});
-		string path = Path.Combine(AppPaths.ThemeDirectory, "theme-sync.ini");
-		string text = (File.Exists(path) ? File.ReadAllText(path) : "");
-		bool flag = text.Contains("Enabled=1");
-		MenuItem themeMenu = new MenuItem(L10n.Text("系统主题色", "System theme colors"));
-		MenuItem accentItem = null;
-		accentItem = new MenuItem(L10n.Text("随 QQ 音乐桌面同步", "Follow the current QQ Music artwork"), delegate
-		{
-			if (themeContext == null)
-			{
-				return;
-			}
-			themeContext.RequestToggleAccent();
-			accentItem.Checked = !accentItem.Checked;
-			foreach (MenuItem menuItem in themeMenu.MenuItems)
-			{
-				if (menuItem != accentItem)
-				{
-					menuItem.Enabled = accentItem.Checked;
-				}
-			}
-		})
-		{
-			Checked = flag
-		};
-		themeMenu.MenuItems.Add(accentItem);
-		MenuItem brightnessItem = null;
-		brightnessItem = new MenuItem(L10n.Text("同时切换系统明暗", "Also switch light/dark mode"), delegate
-		{
-			if (themeContext != null)
-			{
-				themeContext.RequestToggleBrightness();
-				brightnessItem.Checked = !brightnessItem.Checked;
-			}
-		})
-		{
-			Checked = text.Contains("MatchBrightness=1"),
-			Enabled = flag
-		};
-		themeMenu.MenuItems.Add(brightnessItem);
-		MenuItem shellItem = null;
-		shellItem = new MenuItem(L10n.Text("任务栏与开始菜单跟随颜色", "Color the taskbar and Start menu"), delegate
-		{
-			if (themeContext != null)
-			{
-				themeContext.RequestToggleShell();
-				shellItem.Checked = !shellItem.Checked;
-			}
-		})
-		{
-			Checked = text.Contains("ColorizeShell=1"),
-			Enabled = flag
-		};
-		themeMenu.MenuItems.Add(shellItem);
-		MenuItem appsItem = null;
-		appsItem = new MenuItem(L10n.Text("文件资源管理器等使用深色", "Use dark mode for apps and Explorer"), delegate
-		{
-			if (themeContext != null)
-			{
-				themeContext.RequestToggleApps();
-				appsItem.Checked = !appsItem.Checked;
-			}
-		})
-		{
-			Checked = text.Contains("DarkApps=1"),
-			Enabled = flag
-		};
-		themeMenu.MenuItems.Add(appsItem);
-		themeMenu.MenuItems.Add(new MenuItem(L10n.Text("立即取色", "Refresh color now"), delegate
-		{
-			if (themeContext != null)
-			{
-				themeContext.RequestUpdateColor();
-			}
-		})
-		{
-			Enabled = flag
-		});
-		contextMenu.MenuItems.Add("-");
-		contextMenu.MenuItems.Add(themeMenu);
+        contextMenu.MenuItems.Add("-");
+        contextMenu.MenuItems.Add(L10n.Text("检查更新", "Check for updates"), delegate { CheckForUpdates(userInitiated: true); });
+        contextMenu.MenuItems.Add(L10n.Text("导出交互诊断…", "Export interaction diagnostics…"), delegate { ExportInteractionDiagnostics(); });
 		contextMenu.MenuItems.Add(L10n.Text("关于作者", "About the author"), delegate
 		{
 			MessageBox.Show(
@@ -539,8 +446,8 @@ internal sealed class WallpaperContext : ApplicationContext
 		tray.Visible = true;
 		tray.DoubleClick += delegate
 		{
-			Log("Tray double click.");
-			Toggle();
+			Log("Tray double click: control panel.");
+			ShowControlPanel();
 		};
 		mouseProc = MouseHookCallback;
 		desktopIcons = new DesktopIconCache();
@@ -603,6 +510,30 @@ internal sealed class WallpaperContext : ApplicationContext
 			CheckForUpdates(userInitiated: false);
 		});
 	}
+
+    private void ShowControlPanel()
+    {
+        if (controlPanel != null && !controlPanel.IsDisposed)
+        {
+            if (controlPanel.WindowState == FormWindowState.Minimized) controlPanel.WindowState = FormWindowState.Normal;
+            controlPanel.Activate();
+            return;
+        }
+        controlPanel = new ControlPanelForm(
+            ThemePreferences.Load(Path.Combine(AppPaths.ThemeDirectory, "theme-sync.ini")),
+            ExplorerAppearanceSettings.Load(ExplorerAppearanceSettings.SettingsPath));
+        controlPanel.ApplyRequested += (theme, explorer, completed) =>
+        {
+            var context = themeContext;
+            if (context == null) { completed("主题服务还在启动，请稍后重试。"); return; }
+            explorerThemeRuntime.ApplyAsync(explorer, error =>
+            {
+                if (error != null) { completed(error); return; }
+                context.RequestApply(theme, completed);
+            });
+        };
+        controlPanel.Show();
+    }
 
 	private void RedetectQQMusic(bool notify)
 	{
@@ -1616,8 +1547,8 @@ internal sealed class WallpaperContext : ApplicationContext
 				? L10n.Text("没有观察到弹窗出现。", "The requested popup was not observed.")
 				: L10n.Text("控件未识别或操作未成功投递。", "The control was not identified or the action could not be delivered.");
 		tray.ShowBalloonTip(5000, L10n.Text("桌面交互连续失败", "Repeated desktop interaction failures"),
-			explanation + L10n.Text("可右键托盘选择“恢复桌面交互”或“导出交互诊断”。",
-				" Right-click the tray to recover interaction or export diagnostics."), ToolTipIcon.Warning);
+			explanation + L10n.Text("可从托盘菜单下方导出交互诊断。",
+				" Export interaction diagnostics from the bottom of the tray menu."), ToolTipIcon.Warning);
 	}
 
 	private void TraceDesktopClick(DesktopClickRoute route, DesktopSpecialAction action)
@@ -3164,6 +3095,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			Native.UnregisterHotKey(window.Handle, 20813);
 			SystemEvents.SessionSwitch -= OnSessionSwitch;
 			SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+			if (controlPanel != null) controlPanel.Dispose();
 			tray.Visible = false;
 			tray.Dispose();
 			volumeOverlay.Dispose();

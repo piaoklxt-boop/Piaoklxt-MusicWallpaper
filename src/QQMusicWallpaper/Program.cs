@@ -39,7 +39,7 @@ internal static class Program
 		Application.SetCompatibleTextRenderingDefault(defaultValue: false);
 		try
 		{
-			Application.Run(new WallpaperContext());
+			Application.Run(new WallpaperContext(Array.IndexOf(args, "--start-suspended") >= 0));
 		}
 		catch (Exception ex)
 		{

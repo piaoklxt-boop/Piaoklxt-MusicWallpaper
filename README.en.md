@@ -1,8 +1,8 @@
 # Piaoklxt-MusicWallpaper
 
-The local v1.2.5 candidate recognizes owned untitled accompaniment panels and positions native panels near their launcher, including bounded correction after shared-panel reuse or delayed native layout. It also fixes hidden translation controls stealing accompaniment clicks and independent popup projections turning blank desktop clicks into false failures.
+The local v1.2.6 candidate recognizes owned untitled accompaniment panels and positions native panels near their launcher, including bounded correction after shared-panel reuse or delayed native layout. It also fixes hidden translation controls stealing accompaniment clicks and independent popup projections turning blank desktop clicks into false failures.
 
-The local **v1.2.5 candidate** centralizes native accessory-window lifecycle management and adds tray actions to export interaction diagnostics and recover desktop interaction. A memory-only buffer retains the last 32 routed desktop interactions; exit clears it. Manual exports contain allowlisted technical fields only, excluding song/lyric/account text, window titles, paths and screenshots. No diagnostics are uploaded. Three consecutive failures trigger a tray notice with a one-minute cooldown; isolated cancellation stays quiet. Recovery does not restart QQ Music or change playback. Ambiguous native windows are not presented. This candidate still needs live acceptance; release download links below refer to v1.2.1.
+The local **v1.2.6 candidate** centralizes native accessory-window lifecycle management and offers diagnostic export in the lower tray group. The appearance control panel replaces the theme submenu; the manual interaction-recovery entry is removed. A memory-only buffer retains the last 32 routed desktop interactions; exit clears it. Manual exports contain allowlisted technical fields only, excluding song/lyric/account text, window titles, paths and screenshots. No diagnostics are uploaded. Three consecutive failures trigger a tray notice with a one-minute cooldown; isolated cancellation stays quiet. Ambiguous native windows are not presented. This candidate still needs live acceptance; release download links below refer to v1.2.1.
 
 [简体中文](README.md)
 
@@ -42,7 +42,9 @@ No compiler, SDK, runtime setup, or manual configuration is required. QQ Music i
 ## Controls
 
 - `Ctrl+Alt+U`: show or hide the desktop wallpaper.
-- Tray icon: toggle wallpaper, restore QQ Music, choose the player path, toggle startup, control theme synchronization, check for updates, view author information, or exit.
+- The first tray action pauses the wallpaper and restores QQ Music, or enables the wallpaper again. These share one state-aware entry.
+- Double-click the tray icon or choose Control panel to configure theme sync, Explorer acrylic transparency and brightness, navigation acrylic, and header appearance. Apply saves preferences across restarts and runtime updates.
+- The lower tray group contains update checks, diagnostic export, author information, and exit. The manual interaction-recovery menu entry has been removed.
 - The desktop volume and playback-order controls use stable wallpaper pop-ups while applying changes to QQ Music in the background.
 - Click or drag the desktop progress bar to seek, with a live preview while dragging and one seek on release; exposed lyric timestamps also seek directly. Play, previous, and next prefer QQ Music's exposed control bounds instead of broad coordinate targets.
 - Clicking comments opens the separate native comment window through the exposed bounds in the background; the QQ Music main player is never moved in front of the desktop.
