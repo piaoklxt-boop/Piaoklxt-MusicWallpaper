@@ -1,6 +1,6 @@
 # Explorer theme runtime
 
-This directory contains the minimal runtime used by Piaoklxt-MusicWallpaper to apply five File Explorer XAML accent-color rules at 28% opacity and an acrylic backdrop across the entire window, including the classic file-list content area. The bundled mod handles the classic controls' alpha rendering; XAML rules alone only style the header. The content backdrop is translucent rather than a solid accent-color fill.
+This directory contains the minimal runtime used by Piaoklxt-MusicWallpaper to apply five File Explorer XAML accent-color rules at 28% opacity over opaque header backgrounds. The file-list content keeps an acrylic backdrop. The bundled mod handles the classic controls' alpha rendering; XAML rules alone only style the header. Opaque backgrounds on the header root and header controls prevent its accent layers from revealing the acrylic behind them.
 
 - Windhawk 1.7.3 runtime: GNU GPL v3, https://github.com/ramensoftware/windhawk/releases/tag/v1.7.3
 - Windows 11 File Explorer Styler 1.7 by m417z: GNU GPL v3, https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-11-file-explorer-styler.wh.cpp
