@@ -12,6 +12,7 @@ internal sealed class ControlPanelForm : Form
     private readonly CheckBox dark = Check("DarkApps", "应用默认使用深色模式");
     private readonly CheckBox explorerEnabled = Check("ExplorerEnabled", "启用文件资源管理器外观");
     private readonly CheckBox sidebar = Check("SidebarAcrylic", "左侧导航栏使用亚克力");
+    private readonly CheckBox files = Check("FileAreaAcrylic", "文件区域使用亚克力");
     private readonly TrackBar transparency = Slider("AcrylicTransparency", 0, 90);
     private readonly TrackBar gray = Slider("AcrylicGray", 0, 200);
     private readonly TrackBar headerTint = Slider("HeaderTint", 0, 100);
@@ -36,6 +37,7 @@ internal sealed class ControlPanelForm : Form
         MinimumSize = new Size(570, 550);
         StartPosition = FormStartPosition.CenterScreen;
         ShowIcon = false;
+        FormClosed += delegate { OperationLog.Record(OperationKind.ControlPanel, "closed"); };
         BackColor = SystemColors.Window;
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(22, 16, 22, 16) };
@@ -57,6 +59,8 @@ internal sealed class ControlPanelForm : Form
         Add(e, Hint("文件区与预览区共用亚克力；顶部样式作用于地址栏和命令栏。"));
         Add(e, SliderRow("亚克力透明度", transparency, "%"));
         Add(e, SliderRow("底色亮度", gray, ""));
+        Add(e, files);
+        Add(e, Hint("控制文件列表及其空白区域；关闭后使用不透明背景。"));
         Add(e, sidebar);
         Add(e, Hint("控制左侧“桌面、下载、文档”一列；关闭后与顶部同色且不透明。"));
         header.Items.AddRange(new object[] { "主题色（不透明）", "深灰底色（不透明）", "跟随文件区亚克力" });
@@ -82,7 +86,7 @@ internal sealed class ControlPanelForm : Form
         Controls.Add(root);
         AcceptButton = apply;
         CancelButton = close;
-        foreach (var c in new[] { follow, shell, brightness, dark, explorerEnabled, sidebar }) c.CheckedChanged += delegate { MarkDirty(); };
+        foreach (var c in new[] { follow, shell, brightness, dark, explorerEnabled, sidebar, files }) c.CheckedChanged += delegate { MarkDirty(); };
         foreach (var c in new[] { transparency, gray, headerTint }) c.ValueChanged += delegate { MarkDirty(); };
         header.SelectedIndexChanged += delegate { MarkDirty(); };
         apply.Click += delegate { Apply(); };
@@ -129,6 +133,7 @@ internal sealed class ControlPanelForm : Form
         follow.Checked = theme.Enabled; shell.Checked = theme.ColorizeShell;
         brightness.Checked = theme.MatchBrightness; dark.Checked = theme.DarkApps;
         explorerEnabled.Checked = explorer.Enabled; sidebar.Checked = explorer.SidebarAcrylic;
+        files.Checked = explorer.FileAreaAcrylic;
         transparency.Value = explorer.Transparency; gray.Value = explorer.TintGray;
         header.SelectedIndex = (int)explorer.HeaderStyle; headerTint.Value = explorer.HeaderTint;
         loading = false;
@@ -138,7 +143,7 @@ internal sealed class ControlPanelForm : Form
     {
         shell.Enabled = brightness.Enabled = follow.Checked;
         dark.Enabled = follow.Checked && !brightness.Checked;
-        transparency.Enabled = gray.Enabled = sidebar.Enabled = header.Enabled = explorerEnabled.Checked;
+        transparency.Enabled = gray.Enabled = sidebar.Enabled = files.Enabled = header.Enabled = explorerEnabled.Checked;
         headerTint.Enabled = explorerEnabled.Checked && header.SelectedIndex == 0;
     }
     private void MarkDirty()
@@ -147,16 +152,28 @@ internal sealed class ControlPanelForm : Form
         UpdateAvailability();
         apply.Enabled = true;
         status.Text = "有未应用的更改。";
+        OperationLog.Record(OperationKind.SettingsChange, "pending", SettingsSummary());
     }
-    internal ExplorerAppearanceSettings ReadExplorer() { return new ExplorerAppearanceSettings { Enabled = explorerEnabled.Checked, Transparency = transparency.Value, TintGray = gray.Value, SidebarAcrylic = sidebar.Checked, HeaderStyle = (ExplorerHeaderStyle)header.SelectedIndex, HeaderTint = headerTint.Value }; }
+    private string SettingsSummary()
+    {
+        return "enabled=" + explorerEnabled.Checked + ";files=" + files.Checked + ";sidebar=" + sidebar.Checked +
+            ";transparency=" + transparency.Value + ";gray=" + gray.Value + ";header=" + header.SelectedIndex +
+            ";tint=" + headerTint.Value + ";follow=" + follow.Checked + ";shell=" + shell.Checked +
+            ";brightness=" + brightness.Checked + ";dark=" + dark.Checked;
+    }
+    internal ExplorerAppearanceSettings ReadExplorer() { return new ExplorerAppearanceSettings { Enabled = explorerEnabled.Checked, Transparency = transparency.Value, TintGray = gray.Value, SidebarAcrylic = sidebar.Checked, FileAreaAcrylic = files.Checked, HeaderStyle = (ExplorerHeaderStyle)header.SelectedIndex, HeaderTint = headerTint.Value }; }
     internal ThemePreferences ReadTheme() { return new ThemePreferences { Enabled = follow.Checked, ColorizeShell = shell.Checked, MatchBrightness = brightness.Checked, DarkApps = dark.Checked }; }
     private void Apply()
     {
         if (applying || ApplyRequested == null) return;
         applying = true; tabs.Enabled = false; apply.Enabled = false; defaults.Enabled = false;
         status.Text = "正在应用外观设置…";
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        OperationLog.Record(OperationKind.SettingsApply, "requested", SettingsSummary());
         ApplyRequested(ReadTheme(), ReadExplorer(), error =>
         {
+            OperationLog.Record(OperationKind.SettingsApply, error == null ? "completed" : "failed",
+                "elapsedMs=" + elapsed.ElapsedMilliseconds);
             if (IsDisposed || !IsHandleCreated) return;
             try
             {

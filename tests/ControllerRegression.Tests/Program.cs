@@ -56,6 +56,7 @@ internal static class Program
         InteractionDiagnosticsRegression.Register(Run);
         ProcessIdentityRegression.Register(Run);
         ControlPanelRegression.Register(Run);
+        OperationLogRegression.Register(Run);
         Run("hook exceptions release input and unwind callback state", HookExceptionReleasesInput);
         Run("desktop icon guard never sends synchronous queries on its caller", DesktopIconGuardDoesNotSend);
         Run("desktop icon cache preserves icons and releases known clear space", DesktopIconCacheRoutesKnownPoints);

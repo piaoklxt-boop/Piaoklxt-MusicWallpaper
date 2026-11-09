@@ -2,7 +2,7 @@
 // @id              windows-11-file-explorer-styler
 // @name            Windows 11 File Explorer Styler
 // @description     Customize the File Explorer with themes contributed by others or create your own
-// @version         1.7-piaoklxt.8
+// @version         1.7-piaoklxt.9
 // @author          m417z
 // @github          https://github.com/m417z
 // @twitter         https://twitter.com/m417z
@@ -1720,6 +1720,7 @@ struct {
     int acrylicOpacity = 179;
     int acrylicGray = 61;
     bool sidebarAcrylic = true;
+    bool fileAreaAcrylic = true;
     std::optional<BackgroundTranslucentEffect> backgroundTranslucentEffect;
     BackgroundTranslucentEffectRegion backgroundTranslucentEffectRegion;
     int explorerFrameContainerHeight;
@@ -10213,6 +10214,31 @@ bool IsNavigationBackgroundDC(HDC hdc) {
     return !g_settings.sidebarAcrylic && GetNavigationTreeForDC(hdc) != nullptr;
 }
 
+bool IsOpaqueFileAreaDC(HDC hdc) {
+    if (g_settings.fileAreaAcrylic) return false;
+    HWND window = WindowFromDC(hdc);
+    if (!window) {
+        const DCWnd* memory = GetMemoryDCWnd(hdc);
+        if (memory) window = memory->hWnd;
+    }
+    if (!window || !IsFileExplorerWindowPart(window)) return false;
+    for (int depth = 0; window && depth < 32; ++depth, window = GetParent(window)) {
+        WCHAR name[64];
+        if (GetClassNameW(window, name, ARRAYSIZE(name)) && !wcscmp(name, L"SHELLDLL_DefView")) return true;
+    }
+    return false;
+}
+
+bool SolidBrushColor(HDC hdc, HBRUSH brush, COLORREF* color) {
+    ULONG_PTR value = reinterpret_cast<ULONG_PTR>(brush);
+    if (value > 0 && value <= COLOR_MENUBAR + 1) { *color = GetSysColor(value - 1); return true; }
+    if (brush == GetStockObject(DC_BRUSH)) { *color = GetDCBrushColor(hdc); return true; }
+    LOGBRUSH data;
+    if (GetObject(brush, sizeof(data), &data) != sizeof(data) || data.lbStyle != BS_SOLID) return false;
+    *color = data.lbColor;
+    return true;
+}
+
 COLORREF NavigationBaseColor() {
     return g_opaqueHeaderColor.load();
 }
@@ -10237,6 +10263,9 @@ bool FillRectWithAlpha(HDC hdc, const RECT* rect, COLORREF color, BYTE alpha);
 using FillRect_t = decltype(&FillRect);
 FillRect_t FillRect_Original;
 int WINAPI FillRect_Hook(HDC hDC, const RECT* lprc, HBRUSH hbr) {
+    COLORREF color;
+    if (IsEntireWindowEffectDC(hDC) && IsOpaqueFileAreaDC(hDC) && SolidBrushColor(hDC, hbr, &color) &&
+        FillRectWithAlpha(hDC, lprc, color, 255)) return 1;
     if (IsEntireWindowEffectDC(hDC) && IsWindowBackgroundBrush(hDC, hbr)) {
         if (IsNavigationBackgroundDC(hDC) && FillRectWithAlpha(hDC, lprc, NavigationBaseColor(), 255)) return 1;
         hbr = (HBRUSH)GetStockObject(BLACK_BRUSH);
@@ -10248,6 +10277,12 @@ int WINAPI FillRect_Hook(HDC hDC, const RECT* lprc, HBRUSH hbr) {
 using PatBlt_t = decltype(&PatBlt);
 PatBlt_t PatBlt_Original;
 BOOL WINAPI PatBlt_Hook(HDC hdc, int x, int y, int w, int h, DWORD rop) {
+    COLORREF color;
+    if (rop == PATCOPY && IsEntireWindowEffectDC(hdc) && IsOpaqueFileAreaDC(hdc) &&
+        SolidBrushColor(hdc, (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH), &color)) {
+        RECT region{x, y, x + w, y + h};
+        if (FillRectWithAlpha(hdc, &region, color, 255)) return TRUE;
+    }
     if (rop == PATCOPY && IsEntireWindowEffectDC(hdc) &&
         IsWindowBackgroundBrush(hdc,
                                 (HBRUSH)GetCurrentObject(hdc, OBJ_BRUSH))) {
@@ -10678,6 +10713,12 @@ BOOL WINAPI ExtTextOutW_Hook(HDC hdc,
     if (!IsEntireWindowEffectDC(hdc)) {
         return ExtTextOutW_Original(hdc, x, y, options, lprect, lpString, c,
                                     lpDx);
+    }
+
+    if (IsOpaqueFileAreaDC(hdc) && (options & ETO_OPAQUE) && lprect && !IsRectEmpty(lprect) &&
+        FillRectWithAlpha(hdc, lprect, GetBkColor(hdc), 255)) {
+        if (!lpString || !c) return TRUE;
+        return ExtTextOutWithAlpha(hdc, x, y, options & ~ETO_OPAQUE, lprect, lpString, c, lpDx, true);
     }
 
     // Tree rows use zero-character ETO_OPAQUE fills as well as FillRect.
@@ -11920,6 +11961,7 @@ void LoadSettings() {
     g_settings.acrylicOpacity = ReadAppearanceSetting(L"piaoklxtAcrylicOpacity", 179, 0, 255);
     g_settings.acrylicGray = ReadAppearanceSetting(L"piaoklxtAcrylicGray", 61, 0, 200);
     g_settings.sidebarAcrylic = ReadAppearanceSetting(L"piaoklxtSidebarAcrylic", 1, 0, 1) != 0;
+    g_settings.fileAreaAcrylic = ReadAppearanceSetting(L"piaoklxtFileAreaAcrylic", 1, 0, 1) != 0;
     PCWSTR backgroundTranslucentEffectRegion =
         Wh_GetStringSetting(L"backgroundTranslucentEffectRegion");
     g_settings.backgroundTranslucentEffectRegion =

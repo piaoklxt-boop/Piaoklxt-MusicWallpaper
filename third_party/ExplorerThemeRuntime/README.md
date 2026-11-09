@@ -3,7 +3,7 @@
 This directory contains the minimal runtime used by Piaoklxt-MusicWallpaper to style File Explorer. Named address-bar and command-bar XAML controls use the original 38% accent tint flattened over the dark inactive-window base into one opaque color. This avoids both focus-dependent backdrop colors and black backing panels between nested controls. The classic file, navigation and preview panes share an accent-acrylic background with a lighter neutral tint.
 
 - Windhawk 1.7.3 runtime: GNU GPL v3, https://github.com/ramensoftware/windhawk/releases/tag/v1.7.3
-- Windows 11 File Explorer Styler 1.7 by m417z, with the Piaoklxt tint and opaque-header modifications (1.7-piaoklxt.8): GNU GPL v3, https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-11-file-explorer-styler.wh.cpp
+- Windows 11 File Explorer Styler 1.7 by m417z, with the Piaoklxt tint and opaque-header modifications (1.7-piaoklxt.9): GNU GPL v3, https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-11-file-explorer-styler.wh.cpp
 - The corresponding Windhawk 1.7.3 source is in `licenses/windhawk-1.7.3-source.zip`.
 - The exact mod source distributed with the binary is in `licenses/windows-11-file-explorer-styler.wh.cpp`.
 - The GPL v3 text is in `licenses/GPL-3.0.txt`.
@@ -19,3 +19,5 @@ The controller generates the active configuration from the packaged seed plus se
 Caption-hosting tab containers and generic content roots must not receive opaque background overrides: they obscure native window caption buttons and hover feedback. Navigation row backgrounds include zero-character ETO_OPAQUE clears; these preserve opaque alpha when navigation acrylic is disabled.
 
 Opaque navigation uses the exact resolved address/command-bar brush color, including tint strength, and repaints when that color changes. The native tab/title bar and caption buttons retain system styling.
+
+`piaoklxtFileAreaAcrylic` (0/1, default 1) independently controls the native file-list surface and its empty background. The setting resolves descendants of `SHELLDLL_DefView` from the live paint owner, including tracked memory DCs. Disabling it preserves solid fill colors and writes opaque alpha through FillRect, PatBlt and ETO_OPAQUE row clears; navigation and title controls retain their separate settings.

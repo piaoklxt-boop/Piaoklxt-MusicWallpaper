@@ -68,12 +68,27 @@ bool TestNavigationBackground() {
     bool filesUntouched = (*static_cast<DWORD*>(pixels) & 0xFFFFFF) == 0x191919;
     FillRect_Hook(dc, &area, GetSysColorBrush(COLOR_WINDOW));
     bool fileAcrylic = *static_cast<DWORD*>(pixels) == 0;
+    g_settings.fileAreaAcrylic = false;
+    FillRect_Hook(dc, &area, navBrush);
+    bool fileOpaque = *static_cast<DWORD*>(pixels) == 0xFF191919;
+    oldBrush = SelectObject(dc, navBrush);
+    PatBlt_Hook(dc, 0,0,8,8, PATCOPY);
+    bool filePatOpaque = *static_cast<DWORD*>(pixels) == 0xFF191919;
+    SelectObject(dc, oldBrush);
+    SetBkColor(dc, RGB(80,90,100));
+    ExtTextOutW_Hook(dc, 0,0, ETO_OPAQUE, &area, nullptr, 0, nullptr);
+    bool fileRowOpaque = *static_cast<DWORD*>(pixels) == 0xFF505A64;
+    g_doubleBufferDCsForThread[0].wnd.hWnd = tree;
+    g_settings.sidebarAcrylic = true;
+    FillRect_Hook(dc, &area, navBrush);
+    bool fileSwitchLeavesSidebar = *static_cast<DWORD*>(pixels) == 0;
+    g_settings.fileAreaAcrylic = true;
     DeleteObject(navBrush);
     if (!solid || !acrylic) printf("Navigation dark-background regression: opaque=%d transparent=%d\n", solid, acrylic);
     SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
     g_doubleBufferDCCountForThread = 0; g_entireWindowEffectWndForThread = nullptr;
     ReleaseDC(navigation, navDC); ReleaseDC(files, fileDC); DestroyWindow(root);
-    return rowOpaque && textOpaque && rowTransparent && rowSelected && classified && solid && acrylic && patSolid && patAcrylic && selectionUntouched && filesUntouched && fileAcrylic;
+    return rowOpaque && textOpaque && rowTransparent && rowSelected && classified && solid && acrylic && patSolid && patAcrylic && selectionUntouched && filesUntouched && fileAcrylic && fileOpaque && filePatOpaque && fileRowOpaque && fileSwitchLeavesSidebar;
 }
 
 int main() {

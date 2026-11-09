@@ -46,6 +46,8 @@ internal sealed class InteractionDiagnostics
 			if (entries.Count == 32) entries.RemoveAt(0);
 			entries.Add(new Entry { Click = click, Route = route, Action = action,
 				Age = age, Started = milliseconds(), Outcome = InteractionOutcome.Routed });
+			OperationLog.Record(OperationKind.DesktopInteraction, "requested",
+				"click=" + click + ";action=" + action + ";route=" + route + ";snapshotAgeMs=" + age);
 		}
 	}
 
@@ -58,6 +60,8 @@ internal sealed class InteractionDiagnostics
 			entry.Generation = generation;
 			entry.Outcome = outcome;
 			entry.Elapsed = Math.Max(0, milliseconds() - entry.Started);
+			OperationLog.Record(OperationKind.DesktopInteraction, outcome.ToString(),
+				"click=" + click + ";action=" + entry.Action + ";generation=" + generation + ";elapsedMs=" + entry.Elapsed);
 			int failures = 0;
 			for (int i = entries.Count - 1; i >= 0 && IsFailure(entries[i].Outcome); i--) failures++;
 			if (failures >= 3 && milliseconds() >= nextNotice)

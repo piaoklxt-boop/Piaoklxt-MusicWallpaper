@@ -35,6 +35,7 @@ internal static class Program
 		{
 			return;
 		}
+		OperationLog.Start();
 		Application.EnableVisualStyles();
 		Application.SetCompatibleTextRenderingDefault(defaultValue: false);
 		try
@@ -47,6 +48,7 @@ internal static class Program
 		}
 		finally
 		{
+			OperationLog.Stop();
 			instanceMutex.ReleaseMutex();
 			instanceMutex.Dispose();
 		}

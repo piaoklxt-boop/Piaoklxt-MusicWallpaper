@@ -513,6 +513,7 @@ internal sealed class WallpaperContext : ApplicationContext
 
     private void ShowControlPanel()
     {
+        OperationLog.Record(OperationKind.ControlPanel, "requested");
         if (controlPanel != null && !controlPanel.IsDisposed)
         {
             if (controlPanel.WindowState == FormWindowState.Minimized) controlPanel.WindowState = FormWindowState.Normal;
@@ -550,6 +551,8 @@ internal sealed class WallpaperContext : ApplicationContext
             // Shown handlers run through the message loop after Show returns.
             if (!Native.IsWindowVisible(presentedPanel.Handle))
                 Native.ShowWindow(presentedPanel.Handle, 4);
+            OperationLog.Record(OperationKind.ControlPanel, Native.IsWindowVisible(presentedPanel.Handle) ? "visible" : "hidden",
+                "state=" + presentedPanel.WindowState);
         });
         Log("Control panel presented: visible=" + Native.IsWindowVisible(controlPanel.Handle) +
             "; state=" + controlPanel.WindowState);

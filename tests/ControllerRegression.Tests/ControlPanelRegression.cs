@@ -47,7 +47,7 @@ internal static class ControlPanelRegression
         string root = TemporaryDirectory();
         try
         {
-            var appearance = new ExplorerAppearanceSettings { Transparency = 65, TintGray = 90, SidebarAcrylic = false, HeaderStyle = ExplorerHeaderStyle.Neutral, HeaderTint = 22 };
+            var appearance = new ExplorerAppearanceSettings { Transparency = 65, TintGray = 90, SidebarAcrylic = false, FileAreaAcrylic = false, HeaderStyle = ExplorerHeaderStyle.Neutral, HeaderTint = 22 };
             string saved = Path.Combine(root, "preferences.ini");
             appearance.Save(saved);
             string runtime = Path.Combine(root, "runtime");
@@ -62,6 +62,10 @@ internal static class ControlPanelRegression
             string result = File.ReadAllText(Path.Combine(destination, relative));
             Assert(result.Contains("LibraryFileName=new.dll") && result.Contains("piaoklxtAcrylicOpacity=89"), "Upgrade lost the selected transparency or new binary identity.");
             Assert(result.Contains("piaoklxtSidebarAcrylic=0") && result.Contains("TintOpacity=\"0\""), "Upgrade reset navigation/header preferences.");
+            Assert(result.Contains("piaoklxtFileAreaAcrylic=0"), "Upgrade reset the file-area switch.");
+            var changed = ExplorerAppearanceSettings.Load(saved);
+            changed.FileAreaAcrylic = true;
+            Assert(!changed.SameValues(appearance), "File-area change would be skipped by runtime apply.");
             Assert(!result.Contains("obsolete") && !result.Contains("controlStyles[8]"), "A stale style survived generation.");
             byte[] bytes = File.ReadAllBytes(Path.Combine(destination, relative));
             Assert(bytes[0] == 255 && bytes[1] == 254, "Windhawk config lost UTF-16LE encoding.");
@@ -77,6 +81,7 @@ internal static class ControlPanelRegression
             string path = Path.Combine(root, "settings.ini");
             File.WriteAllText(path, "Transparency=500\nTintGray=-20\nHeaderStyle=invalid\nHeaderTint=38\nEnabled=0\n");
             var settings = ExplorerAppearanceSettings.Load(path);
+            Assert(settings.FileAreaAcrylic, "Older preferences must retain file-area acrylic.");
             Assert(settings.Transparency == 90 && settings.TintGray == 0 && settings.HeaderStyle == ExplorerHeaderStyle.ThemeColor, "Invalid settings escaped validation.");
             Thread.CurrentThread.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
             string generated = settings.CreateRuntimeConfiguration("[Mod]\nDisabled=0\n[Settings]\n");
@@ -96,6 +101,7 @@ internal static class ControlPanelRegression
             IntPtr handle = form.Handle;
             Find<TrackBar>(form, "AcrylicTransparency").Value = 67;
             Find<CheckBox>(form, "SidebarAcrylic").Checked = false;
+            Find<CheckBox>(form, "FileAreaAcrylic").Checked = false;
             Find<ComboBox>(form, "HeaderStyle").SelectedIndex = 2;
             Find<CheckBox>(form, "ColorizeShell").Checked = false;
             Action<string> finish = null;
@@ -103,6 +109,7 @@ internal static class ControlPanelRegression
             form.ApplyRequested += (theme, explorer, completion) =>
             {
                 requests++;
+                Assert(!explorer.FileAreaAcrylic, "File-area checkbox was not submitted.");
                 Assert(explorer.Transparency == 67 && !explorer.SidebarAcrylic && explorer.HeaderStyle == ExplorerHeaderStyle.Acrylic && !theme.ColorizeShell, "UI submitted stale or toggled values.");
                 finish = completion;
             };

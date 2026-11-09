@@ -34,6 +34,7 @@ internal sealed class ExplorerAppearanceSettings
     public int Transparency = 30;
     public int TintGray = 61;
     public bool SidebarAcrylic = true;
+    public bool FileAreaAcrylic = true;
     public ExplorerHeaderStyle HeaderStyle;
     public int HeaderTint = 38;
 
@@ -48,6 +49,7 @@ internal sealed class ExplorerAppearanceSettings
         value.Transparency = AppearanceIni.ReadInt(text, "Transparency", 30, 0, 90);
         value.TintGray = AppearanceIni.ReadInt(text, "TintGray", 61, 0, 200);
         value.SidebarAcrylic = AppearanceIni.ReadInt(text, "SidebarAcrylic", 1, 0, 1) == 1;
+        value.FileAreaAcrylic = AppearanceIni.ReadInt(text, "FileAreaAcrylic", 1, 0, 1) == 1;
         value.HeaderStyle = (ExplorerHeaderStyle)AppearanceIni.ReadInt(text, "HeaderStyle", 0, 0, 2);
         value.HeaderTint = AppearanceIni.ReadInt(text, "HeaderTint", 38, 0, 100);
         return value;
@@ -57,6 +59,7 @@ internal sealed class ExplorerAppearanceSettings
     {
         string text = "Enabled=" + (Enabled ? 1 : 0) + "\nTransparency=" + Transparency +
             "\nTintGray=" + TintGray + "\nSidebarAcrylic=" + (SidebarAcrylic ? 1 : 0) +
+            "\nFileAreaAcrylic=" + (FileAreaAcrylic ? 1 : 0) +
             "\nHeaderStyle=" + (int)HeaderStyle + "\nHeaderTint=" + HeaderTint + "\n";
         AppearanceIni.WriteAtomic(path, text, Encoding.UTF8);
     }
@@ -64,7 +67,7 @@ internal sealed class ExplorerAppearanceSettings
     internal bool SameValues(ExplorerAppearanceSettings other)
     {
         return other != null && Enabled == other.Enabled && Transparency == other.Transparency &&
-            TintGray == other.TintGray && SidebarAcrylic == other.SidebarAcrylic &&
+            TintGray == other.TintGray && SidebarAcrylic == other.SidebarAcrylic && FileAreaAcrylic == other.FileAreaAcrylic &&
             HeaderStyle == other.HeaderStyle && HeaderTint == other.HeaderTint;
     }
 
@@ -100,7 +103,8 @@ internal sealed class ExplorerAppearanceSettings
         text = text.TrimEnd() + "\n" + styles;
         text = AppearanceIni.Set(text, "piaoklxtAcrylicOpacity", opacity.ToString(CultureInfo.InvariantCulture));
         text = AppearanceIni.Set(text, "piaoklxtAcrylicGray", Math.Max(0, Math.Min(200, TintGray)).ToString(CultureInfo.InvariantCulture));
-        return AppearanceIni.Set(text, "piaoklxtSidebarAcrylic", SidebarAcrylic ? "1" : "0");
+        text = AppearanceIni.Set(text, "piaoklxtSidebarAcrylic", SidebarAcrylic ? "1" : "0");
+        return AppearanceIni.Set(text, "piaoklxtFileAreaAcrylic", FileAreaAcrylic ? "1" : "0");
     }
 }
 
