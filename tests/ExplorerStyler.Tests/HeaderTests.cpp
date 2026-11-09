@@ -15,6 +15,7 @@ bool TestNavigationBackground() {
     TreeView_SetBkColor(tree, RGB(25,25,25)); // Captured dark navigation background; COLOR_WINDOW is white.
     HWND files = CreateWindowW(classes[2], L"", WS_CHILD, 0,0,200,150,root,nullptr,nullptr,nullptr);
     HDC navDC = GetDC(navigation), fileDC = GetDC(files);
+    PublishOpaqueHeaderColor({255, 98, 132, 188});
     g_settings.sidebarAcrylic = false;
     bool classified = IsNavigationBackgroundDC(navDC) && !IsNavigationBackgroundDC(fileDC);
     BufferedPaintInit(); FillRect_Original = FillRect; PatBlt_Original = PatBlt;
@@ -30,12 +31,12 @@ bool TestNavigationBackground() {
     RECT area{0,0,8,8};
     HBRUSH navBrush = CreateSolidBrush(TreeView_GetBkColor(tree));
     FillRect_Hook(dc, &area, navBrush);
-    bool solid = static_cast<RGBQUAD*>(pixels)->rgbReserved == 255;
+    bool solid = *static_cast<DWORD*>(pixels) == 0xFF6284BC;
     ExtTextOutW_Original = ExtTextOutW;
     SetBkColor(dc, RGB(25,25,25));
     // Common controls clear item rows with ETO_OPAQUE and zero characters.
     ExtTextOutW_Hook(dc, 0,0, ETO_OPAQUE, &area, nullptr, 0, nullptr);
-    bool rowOpaque = static_cast<RGBQUAD*>(pixels)->rgbReserved == 255;
+    bool rowOpaque = *static_cast<DWORD*>(pixels) == 0xFF6284BC;
     ExtTextOutW_Hook(dc, 0,0, ETO_OPAQUE, &area, L"A", 1, nullptr);
     bool textOpaque = static_cast<RGBQUAD*>(pixels)[63].rgbReserved == 255;
     g_settings.sidebarAcrylic = true;

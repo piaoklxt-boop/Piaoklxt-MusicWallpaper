@@ -58,7 +58,7 @@ internal sealed class ControlPanelForm : Form
         Add(e, SliderRow("亚克力透明度", transparency, "%"));
         Add(e, SliderRow("底色亮度", gray, ""));
         Add(e, sidebar);
-        Add(e, Hint("控制左侧“桌面、下载、文档”一列；关闭后使用不透明底色。"));
+        Add(e, Hint("控制左侧“桌面、下载、文档”一列；关闭后与顶部同色且不透明。"));
         header.Items.AddRange(new object[] { "主题色（不透明）", "深灰底色（不透明）", "跟随文件区亚克力" });
         Add(e, new Label { Text = "顶部内容区渲染", AutoSize = true, Margin = new Padding(0, 12, 0, 4) });
         Add(e, header);

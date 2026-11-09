@@ -2,7 +2,7 @@
 // @id              windows-11-file-explorer-styler
 // @name            Windows 11 File Explorer Styler
 // @description     Customize the File Explorer with themes contributed by others or create your own
-// @version         1.7-piaoklxt.5
+// @version         1.7-piaoklxt.8
 // @author          m417z
 // @github          https://github.com/m417z
 // @twitter         https://twitter.com/m417z
@@ -3219,6 +3219,9 @@ typedef enum MY_D2D1_GAUSSIANBLUR_OPTIMIZATION
 
 ////////////////////////////////////////////////////////////////////////////////
 // XamlBlurBrush.h
+std::atomic<COLORREF> g_opaqueHeaderColor{RGB(32, 32, 32)};
+void PublishOpaqueHeaderColor(winrt::Windows::UI::Color color);
+
 winrt::Windows::UI::Color CompositeHeaderTint(winrt::Windows::UI::Color tint) {
     // Flatten the original accent over the inactive dark material once, rather
     // than inserting black backing panels between existing header controls.
@@ -4409,7 +4412,11 @@ void XamlBlurBrush::OnConnected()
 
 muc::CompositionBrush XamlBlurBrush::CreateFallbackBrush()
 {
-    if (m_opaqueBase) return m_compositor.CreateColorBrush(CompositeHeaderTint(m_tint));
+    if (m_opaqueBase) {
+        auto color = CompositeHeaderTint(m_tint);
+        PublishOpaqueHeaderColor(color);
+        return m_compositor.CreateColorBrush(color);
+    }
     return m_compositor.CreateColorBrush(m_fallbackColor.value_or(m_tint));
 }
 
@@ -4417,7 +4424,11 @@ muc::CompositionBrush XamlBlurBrush::CreateEffectBrush()
 {
     // Theme-resource proxy notifications still refresh m_tint. This mode has
     // no backdrop sampling, blur, transparency, or focus-dependent fallback.
-    if (m_opaqueBase) return m_compositor.CreateColorBrush(CompositeHeaderTint(m_tint));
+    if (m_opaqueBase) {
+        auto color = CompositeHeaderTint(m_tint);
+        PublishOpaqueHeaderColor(color);
+        return m_compositor.CreateColorBrush(color);
+    }
     auto backdropBrush = m_compositor.CreateBackdropBrush();
 
     // Rec. 709 luma coefficients, used for saturation and luminosity.
@@ -10203,17 +10214,23 @@ bool IsNavigationBackgroundDC(HDC hdc) {
 }
 
 COLORREF NavigationBaseColor() {
-    thread_local ULONGLONG sampled;
-    thread_local DWORD light = 0;
-    ULONGLONG now = GetTickCount64();
-    if (!sampled || now - sampled > 1000) {
-        DWORD size = sizeof(light), next = 0;
-        if (RegGetValueW(HKEY_CURRENT_USER,
-            L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-            L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &next, &size) == ERROR_SUCCESS) light = next;
-        sampled = now;
-    }
-    return light ? RGB(255, 255, 255) : RGB(32, 32, 32);
+    return g_opaqueHeaderColor.load();
+}
+
+void PublishOpaqueHeaderColor(winrt::Windows::UI::Color color) {
+    COLORREF next = RGB(color.R, color.G, color.B);
+    if (g_opaqueHeaderColor.exchange(next) == next) return;
+    // Share the actual resolved header brush color, including tint strength,
+    // so navigation does not derive a different accent or change on focus.
+    EnumWindows([](HWND window, LPARAM) -> BOOL {
+        DWORD process; GetWindowThreadProcessId(window, &process);
+        if (process == GetCurrentProcessId() &&
+            GetTargetWindowType(window) == TargetWindowType::FileExplorer) {
+            RedrawWindow(window, nullptr, nullptr,
+                RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+        }
+        return TRUE;
+    }, 0);
 }
 
 bool FillRectWithAlpha(HDC hdc, const RECT* rect, COLORREF color, BYTE alpha);
