@@ -21,3 +21,9 @@ Caption-hosting tab containers and generic content roots must not receive opaque
 Opaque navigation uses the exact resolved address/command-bar brush color, including tint strength, and repaints when that color changes. The native tab/title bar and caption buttons retain system styling.
 
 `piaoklxtFileAreaAcrylic` (0/1, default 1) independently controls the native file-list surface and its empty background. The setting resolves descendants of `SHELLDLL_DefView` from the live paint owner, including tracked memory DCs. Disabling it preserves solid fill colors and writes opaque alpha through FillRect, PatBlt and ETO_OPAQUE row clears; navigation and title controls retain their separate settings.
+
+## Optional taskbar styling
+
+The seed also contains the unmodified Windows 11 Taskbar Styler 1.11 at upstream commit `2cd9c600bfe13afb4fba68ec907a4b8084acc0a3`, under GPLv3. Its source is preserved in `licenses/windows-11-taskbar-styler.wh.cpp`. Rebuild with `scripts/build-taskbar-styler.ps1` and the same external developer toolchain. The taskbar mod is disabled by default. Its generated rule targets the named taskbar background rectangle and uses the same system accent as Explorer; it does not replace taskbar input.
+
+Both active mod configurations are backed up before runtime reconfiguration and restored on startup failure. Taskbar effects are independent of the Explorer master switch. The renderer handles bottom-edge extension separately, reusing its composition surface beneath the primary working area.

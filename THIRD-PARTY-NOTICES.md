@@ -20,6 +20,12 @@ It also contains the Windows 11 File Explorer Styler 1.7 mod by m417z:
 - Source: https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-11-file-explorer-styler.wh.cpp
 - License: GNU General Public License version 3
 
-These GPL components run as an independent process and remain separate works aggregated with the MIT-licensed Piaoklxt-MusicWallpaper application. The corresponding Windhawk 1.7.3 source archive, exact distributed mod source, and GPLv3 text are included under `ExplorerThemeRuntime\licenses`. The package includes only the runtime files needed for the five Explorer accent-color rules; it does not include the Windhawk user interface, compiler, updater, or service.
+These GPL components run as an independent process and remain separate works aggregated with the MIT-licensed Piaoklxt-MusicWallpaper application. The corresponding Windhawk 1.7.3 source archive, exact distributed mod source, and GPLv3 text are included under `ExplorerThemeRuntime\licenses`. The package includes only the runtime files needed for Explorer and optional taskbar styling; it does not include the Windhawk user interface, compiler, updater, or service.
 
 QQ Music is not included in this repository or its release archives.
+
+Windows 11 Taskbar Styler 1.11 by m417z is also distributed under GPLv3 as a separate mod:
+
+- Pinned source: https://github.com/ramensoftware/windhawk-mods/blob/2cd9c600bfe13afb4fba68ec907a4b8084acc0a3/mods/windows-11-taskbar-styler.wh.cpp
+- Exact unmodified source: `ExplorerThemeRuntime/licenses/windows-11-taskbar-styler.wh.cpp`
+- Rebuild script: `scripts/build-taskbar-styler.ps1` using a separate Windhawk 1.7.3 developer toolchain.
