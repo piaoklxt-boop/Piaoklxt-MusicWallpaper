@@ -1,8 +1,10 @@
 # Piaoklxt-MusicWallpaper
 
-The local v1.2.6 candidate recognizes owned untitled accompaniment panels and positions native panels near their launcher, including bounded correction after shared-panel reuse or delayed native layout. It also fixes hidden translation controls stealing accompaniment clicks and independent popup projections turning blank desktop clicks into false failures.
+v1.3.0 adds a native appearance control panel, independent file-area acrylic control and persistent operation diagnostics, together with native-popup, Explorer rendering and input-safety fixes since v1.2.1.
 
-The local **v1.2.6 candidate** centralizes native accessory-window lifecycle management and offers diagnostic export in the lower tray group. The appearance control panel replaces the theme submenu; the manual interaction-recovery entry is removed. A memory-only buffer retains the last 32 routed desktop interactions; exit clears it. Manual exports contain allowlisted technical fields only, excluding song/lyric/account text, window titles, paths and screenshots. No diagnostics are uploaded. Three consecutive failures trigger a tray notice with a one-minute cooldown; isolated cancellation stays quiet. Ambiguous native windows are not presented. This candidate still needs live acceptance; release download links below refer to v1.2.1.
+The tray control panel saves theme and Explorer preferences across upgrades. Local `operations.log` files record panel/settings actions and routed outcomes with timings through a bounded background queue; each file is about 2 MiB and two older files are retained. Manual diagnostic export still includes the latest 32 interactions. Neither operation logs nor exports contain song text, window titles, account data, paths or screenshots, and nothing is automatically uploaded.
+
+Known issue: an overall exit/capture-start failure has been reported and remains unresolved in this release. Native panel recognition can vary across QQ Music versions and skins; automated regressions do not establish full live compatibility. See [CHANGELOG.md](CHANGELOG.md).
 
 [简体中文](README.md)
 
@@ -19,21 +21,19 @@ Turn the current QQ Music window into an interactive Windows desktop wallpaper. 
 - A portable x64 package: extract, run, and let the app find or open QQ Music.
 - Automatic color restoration on wallpaper shutdown or application exit.
 
-## What's new in v1.2.1
+## What's new in v1.3.0
 
-### Fixed and improved
+- Configure theme synchronization and Explorer appearance through a native control panel; keep preferences across component upgrades.
+- Independently switch file-list and navigation acrylic, tune opacity and tint, and retain native title-bar buttons.
+- Improve accompaniment, quality, style and comment popup identification, placement, repainting and dismissal.
+- Keep desktop icon discovery off the mouse hook, contain callback failures and validate source process ownership.
+- Persist bounded local operation logs and retain manual interaction diagnostics without uploading content.
 
-- Show an immediate drag preview with a slim rail, small thumb and background matching the current player skin; still commit one seek on release.
-- Fix comment dispatch selecting an old player bar and recover an initially missed comment click through a bounded semantic probe that cancels stale requests.
-- Preserve the control-cache deadline during unchanged window maintenance while refreshing after real movement or recovery.
-- Reduce mouse-hook recovery caused by delayed polling and add optional local diagnostics.
-- Run five regression suites and playback-mode checks before packaging, including actual window messages and preview rendering.
-
-See [CHANGELOG.md](CHANGELOG.md) for the complete history.
+See [CHANGELOG.md](CHANGELOG.md) for the full history and known issues.
 
 ## Download and run
 
-1. Download `Piaoklxt-MusicWallpaper-v1.2.1-win-x64.zip` from [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases).
+1. Download `Piaoklxt-MusicWallpaper-v1.3.0-win-x64.zip` from [Releases](https://github.com/piaoklxt-boop/Piaoklxt-MusicWallpaper/releases).
 2. Extract the complete ZIP to any writable folder.
 3. Run `Piaoklxt-MusicWallpaper.exe`.
 
@@ -43,7 +43,7 @@ No compiler, SDK, runtime setup, or manual configuration is required. QQ Music i
 
 - `Ctrl+Alt+U`: show or hide the desktop wallpaper.
 - The first tray action pauses the wallpaper and restores QQ Music, or enables the wallpaper again. These share one state-aware entry.
-- Double-click the tray icon or choose Control panel to configure theme sync, Explorer acrylic transparency and brightness, navigation acrylic, and header appearance. Apply saves preferences across restarts and runtime updates.
+- Double-click the tray icon or choose Control panel to configure theme sync, Explorer acrylic transparency and brightness, independent file-area/navigation acrylic, and header appearance. Apply saves preferences across restarts and runtime updates.
 - The lower tray group contains update checks, diagnostic export, author information, and exit. The manual interaction-recovery menu entry has been removed.
 - The desktop volume and playback-order controls use stable wallpaper pop-ups while applying changes to QQ Music in the background.
 - Click or drag the desktop progress bar to seek, with a live preview while dragging and one seek on release; exposed lyric timestamps also seek directly. Play, previous, and next prefer QQ Music's exposed control bounds instead of broad coordinate targets.
