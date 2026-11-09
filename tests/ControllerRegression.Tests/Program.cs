@@ -56,6 +56,7 @@ internal static class Program
         InteractionDiagnosticsRegression.Register(Run);
         ProcessIdentityRegression.Register(Run);
         ControlPanelRegression.Register(Run);
+        AppearanceRuntimeRegression.Register(Run);
         OperationLogRegression.Register(Run);
         SoftwareSpaceRegression.Register(Run);
         Run("software space list items support native double clicks", SemanticDoubleClick);

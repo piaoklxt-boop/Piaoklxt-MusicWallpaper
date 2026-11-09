@@ -2,7 +2,7 @@
 // @id              windows-11-file-explorer-styler
 // @name            Windows 11 File Explorer Styler
 // @description     Customize the File Explorer with themes contributed by others or create your own
-// @version         1.7-piaoklxt.9
+// @version         1.7-piaoklxt.10
 // @author          m417z
 // @github          https://github.com/m417z
 // @twitter         https://twitter.com/m417z
@@ -1847,10 +1847,15 @@ public:
     ~VisualTreeWatcher();
 
     void UnadviseVisualTreeChange();
+    std::vector<DWORD> GetCallbackThreadIds();
 
     bool ReleaseDiagnosticsReference(InstanceHandle handle);
 
 private:
+    void RecordCallbackThread();
+    winrt::slim_mutex m_callbackThreadIdsLock;
+    std::vector<DWORD> m_callbackThreadIds;
+
     HRESULT STDMETHODCALLTYPE OnVisualTreeChange(ParentChildRelation relation, VisualElement element, VisualMutationType mutationType) override;
     HRESULT STDMETHODCALLTYPE OnElementStateChanged(InstanceHandle element, VisualElementState elementState, LPCWSTR context) noexcept override;
 
@@ -1884,6 +1889,7 @@ VisualTreeWatcher::VisualTreeWatcher(winrt::com_ptr<IUnknown> site) :
     // Calling AdviseVisualTreeChange from the current thread causes the app to
     // hang in Advising::RunOnUIThread sometimes. Creating a new thread and
     // calling it from there fixes it.
+    AddRef();
     HANDLE thread = CreateThread(
         nullptr, 0,
         [](LPVOID lpParam) -> DWORD {
@@ -1897,8 +1903,9 @@ VisualTreeWatcher::VisualTreeWatcher(winrt::com_ptr<IUnknown> site) :
         },
         this, 0, nullptr);
     if (thread) {
-        AddRef();
         CloseHandle(thread);
+    } else {
+        Release();
     }
 }
 
@@ -1953,8 +1960,25 @@ bool VisualTreeWatcher::ReleaseDiagnosticsReference(InstanceHandle handle)
     return weakElement && !weakElement.get();
 }
 
+std::vector<DWORD> VisualTreeWatcher::GetCallbackThreadIds()
+{
+    winrt::slim_lock_guard lock(m_callbackThreadIdsLock);
+    return m_callbackThreadIds;
+}
+
+void VisualTreeWatcher::RecordCallbackThread()
+{
+    DWORD threadId = GetCurrentThreadId();
+
+    winrt::slim_lock_guard lock(m_callbackThreadIdsLock);
+    if (std::find(m_callbackThreadIds.begin(), m_callbackThreadIds.end(), threadId) == m_callbackThreadIds.end()) {
+        m_callbackThreadIds.push_back(threadId);
+    }
+}
+
 HRESULT VisualTreeWatcher::OnVisualTreeChange(ParentChildRelation relation, VisualElement element, VisualMutationType mutationType) try
 {
+    RecordCallbackThread();
     Wh_Log(L"========================================");
 
     switch (mutationType)
@@ -2098,12 +2122,15 @@ winrt::com_ptr<VisualTreeWatcher> ExchangeVisualTreeWatcher(winrt::com_ptr<Visua
     return watcher;
 }
 
+void ReleaseUnadvisedVisualTreeWatcher(winrt::com_ptr<VisualTreeWatcher> watcher);
+
 HRESULT WindhawkTAP::SetSite(IUnknown *pUnkSite) try
 {
     // Only ever 1 VTW at once.
     if (auto previous = ExchangeVisualTreeWatcher(nullptr))
     {
         previous->UnadviseVisualTreeChange();
+        ReleaseUnadvisedVisualTreeWatcher(std::move(previous));
     }
 
     site.copy_from(pUnkSite);
@@ -9924,12 +9951,71 @@ void UninitializeForCurrentThread() {
     g_initializedForThread = false;
 }
 
-void UninitializeSettingsAndTap() {
-    if (auto watcher = ExchangeVisualTreeWatcher(nullptr)) {
+winrt::com_ptr<VisualTreeWatcher> UninitializeSettingsAndTap() {
+    auto watcher = ExchangeVisualTreeWatcher(nullptr);
+    if (watcher) {
         watcher->UnadviseVisualTreeChange();
     }
 
     g_initialized = false;
+
+    return watcher;
+}
+
+// Bounds the wait for a thread which doesn't get to its messages, giving up the
+// guarantee for that thread rather than hanging the caller.
+constexpr UINT kUnadvisedVisualTreeWatcherWaitTimeout = 5000;
+
+// Any window of the thread. EnumThreadWindows doesn't report message-only
+// windows, so those are looked through when it finds none.
+HWND FindThreadWindow(DWORD threadId) {
+    HWND hWnd = nullptr;
+    EnumThreadWindows(
+        threadId,
+        [](HWND hWnd, LPARAM lParam) -> BOOL {
+            *reinterpret_cast<HWND*>(lParam) = hWnd;
+            return FALSE;
+        },
+        reinterpret_cast<LPARAM>(&hWnd));
+    if (hWnd) {
+        return hWnd;
+    }
+
+    while ((hWnd = FindWindowEx(HWND_MESSAGE, hWnd, nullptr, nullptr))) {
+        if (GetWindowThreadProcessId(hWnd, nullptr) == threadId) {
+            return hWnd;
+        }
+    }
+
+    return nullptr;
+}
+
+// XAML calls the watcher without holding a reference, so a thread it was called
+// on can still be inside a call after the unadvise. A thread which processes a
+// message sent after the unadvise is past any such call.
+//
+// The watcher can hold the last reference to the diagnostics, whose destruction
+// stops XAML from reporting mutations to any diagnostics created before it, so
+// this has to come before the TAP is injected again.
+void WaitForVisualTreeCallbackThreads(const std::vector<DWORD>& threadIds) {
+    for (DWORD threadId : threadIds) {
+        HWND hWnd = FindThreadWindow(threadId);
+
+        // The id may have been reused by a thread of another process.
+        DWORD processId = 0;
+        if (!hWnd || !GetWindowThreadProcessId(hWnd, &processId) ||
+            processId != GetCurrentProcessId()) {
+            Wh_Log(L"No window to wait on for thread %u", threadId);
+            continue;
+        }
+
+        SendMessageTimeout(hWnd, WM_NULL, 0, 0, SMTO_ABORTIFHUNG,
+                           kUnadvisedVisualTreeWatcherWaitTimeout, nullptr);
+    }
+}
+
+void ReleaseUnadvisedVisualTreeWatcher(winrt::com_ptr<VisualTreeWatcher> watcher) {
+    if (watcher) WaitForVisualTreeCallbackThreads(watcher->GetCallbackThreadIds());
 }
 
 void InitializeForCurrentThread() {
@@ -12155,7 +12241,7 @@ void Wh_ModUninit() {
     // scheduled on a thread which is being uninitialized.
     StopImageLoadRetries();
 
-    UninitializeSettingsAndTap();
+    auto unadvisedWatcher = UninitializeSettingsAndTap();
 
     auto hTargetWnds = GetTargetWnds();
     for (auto hTargetWnd : hTargetWnds) {
@@ -12178,12 +12264,13 @@ void Wh_ModUninit() {
     }
 
     ClearThemePartCache();
+    ReleaseUnadvisedVisualTreeWatcher(std::move(unadvisedWatcher));
 }
 
 void Wh_ModSettingsChanged() {
     Wh_Log(L">");
 
-    UninitializeSettingsAndTap();
+    auto unadvisedWatcher = UninitializeSettingsAndTap();
 
     LoadSettings();
     LoadThemeSettings();
@@ -12207,6 +12294,8 @@ void Wh_ModSettingsChanged() {
             },
             (PVOID)hTargetWnd);
     }
+
+    ReleaseUnadvisedVisualTreeWatcher(std::move(unadvisedWatcher));
 
     if (hTargetWnds.size() > 0) {
         Wh_Log(L"Reinitializing - Found target windows");

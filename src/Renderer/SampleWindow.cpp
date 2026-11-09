@@ -182,7 +182,11 @@ LRESULT SampleWindow::MessageHandler(UINT const message, WPARAM const wparam, LP
         return 0;
     }
     if (message == WM_DESTROY) RuntimeLog(L"received WM_DESTROY");
-    if (message == WM_NCDESTROY) RuntimeLog(L"received WM_NCDESTROY");
+    if (message == WM_NCDESTROY)
+    {
+        RuntimeLog(L"received WM_NCDESTROY; exiting renderer for controller recovery");
+        PostQuitMessage(0);
+    }
     switch (message)
     {
     case WM_COMMAND:

@@ -238,3 +238,12 @@ This is the project record of approaches that failed during development. It cont
 - **Why it failed:** Behavior changes were committed faster than their project model and release notes.
 - **Correction:** Update the changelog, README, glossary, ADRs, and agent guidance in the release commit.
 - **Guardrail:** Search for the prior version and obsolete behavior claims before tagging.
+
+## Appearance runtime lifecycle
+
+### Applying an unrelated setting unloaded Explorer extensions
+
+- **Failure:** Taskbar or Explorer appearance changes could terminate Explorer while the panel reported success. The wallpaper could then remain absent although its renderer process survived.
+- **Why it failed:** Each setting change stopped and restarted the entire native styling runtime. The Explorer XAML watcher was released immediately after unadvise, while a callback could still be executing. Success checked the styling daemon rather than the desktop host; renderer health checked only process lifetime.
+- **Correction:** Update changed module INIs through the existing settings watcher, assign distinct revision values, and leave unrelated modules untouched. Retain the unadvised watcher through callback-thread barriers before reinjection. Observe desktop identity during apply and roll back on host loss. Detect renderer surface loss independently of process exit.
+- **Guardrail:** Exercise the production apply transaction with isolated INIs: module isolation, rapid updates, rollback and asynchronous failure delivery. Exercise the native callback barrier with an owned message-only window. Before accepting a candidate, apply real taskbar/Explorer changes, confirm desktop and renderer survival, inspect crash events, and restore the selected preferences. Bounded health observation and bounded callback waits do not prove indefinite XAML stability.

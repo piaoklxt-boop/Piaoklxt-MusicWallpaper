@@ -91,7 +91,47 @@ bool TestNavigationBackground() {
     return rowOpaque && textOpaque && rowTransparent && rowSelected && classified && solid && acrylic && patSolid && patAcrylic && selectionUntouched && filesUntouched && fileAcrylic && fileOpaque && filePatOpaque && fileRowOpaque && fileSwitchLeavesSidebar;
 }
 
+// The production unadvise barrier must outlive a queued callback on a
+// message-only UI window, which EnumThreadWindows cannot enumerate.
+HANDLE callbackEntered;
+std::atomic<bool> callbackExited = false;
+LRESULT CALLBACK CallbackFixtureProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_APP) {
+        SetEvent(callbackEntered);
+        Sleep(150);
+        callbackExited = true;
+        return 0;
+    }
+    if (m == WM_CLOSE) { DestroyWindow(h); PostQuitMessage(0); return 0; }
+    return DefWindowProcW(h, m, w, l);
+}
+bool TestCallbackDrain() {
+    callbackEntered = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    DWORD threadId = 0;
+    HANDLE thread = CreateThread(nullptr, 0, [](void*) -> DWORD {
+        WNDCLASSW wc{}; wc.lpfnWndProc = CallbackFixtureProc;
+        wc.lpszClassName = L"MusicWallpaper.CallbackFixture";
+        wc.hInstance = GetModuleHandleW(nullptr); RegisterClassW(&wc);
+        HWND window = CreateWindowW(wc.lpszClassName, L"", 0, 0,0,0,0, HWND_MESSAGE,nullptr,wc.hInstance,nullptr);
+        if (!window) return 1;
+        PostMessageW(window, WM_APP, 0, 0);
+        MSG message{};
+        while (GetMessageW(&message, nullptr, 0, 0) > 0) DispatchMessageW(&message);
+        return 0;
+    }, nullptr, 0, &threadId);
+    bool entered = WaitForSingleObject(callbackEntered, 3000) == WAIT_OBJECT_0;
+    if (entered) WaitForVisualTreeCallbackThreads({threadId});
+    bool drained = callbackExited.load();
+    HWND window = FindThreadWindow(threadId);
+    if (window) PostMessageW(window, WM_CLOSE, 0, 0);
+    bool stopped = WaitForSingleObject(thread, 3000) == WAIT_OBJECT_0;
+    CloseHandle(thread); CloseHandle(callbackEntered);
+    return entered && drained && stopped;
+}
+
 int main() {
+    if (!TestCallbackDrain()) return 8;
+    puts("Unadvised callback barrier drains an owned message-only UI thread before release. PASS");
     auto parse = [](std::wstring_view value) {
         return std::get<XamlBlurBrushParams>(*ParseNonXamlPropertyOverrideValue(value));
     };

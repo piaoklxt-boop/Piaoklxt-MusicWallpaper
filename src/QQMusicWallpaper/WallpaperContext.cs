@@ -688,9 +688,9 @@ internal sealed class WallpaperContext : ApplicationContext
 			qqWindow = IntPtr.Zero;
 			sourceStateCaptured = false;
 		}
-		else if (embedded && !IsRendererAlive())
+		else if (embedded && !IsRendererSurfaceAlive())
 		{
-			Log("Wallpaper renderer exited; restoring and restarting.");
+			Log("Wallpaper renderer process or desktop surface lost; restoring and restarting.");
 			DisableWallpaper(showQQ: false);
 			nextEmbedAttempt = DateTime.UtcNow.AddSeconds(3.0);
 			return;
@@ -940,6 +940,17 @@ internal sealed class WallpaperContext : ApplicationContext
 			return false;
 		}
 	}
+
+    private bool IsRendererSurfaceAlive()
+    {
+        if (!IsRendererAlive()) return false;
+        try
+        {
+            return RendererAppearance.FindSurface((uint)rendererProcess.Id,
+                Native.FindWindow("Progman", null)) != IntPtr.Zero;
+        }
+        catch (InvalidOperationException) { return false; }
+    }
 
 	private void AbortFailedStartup()
 	{

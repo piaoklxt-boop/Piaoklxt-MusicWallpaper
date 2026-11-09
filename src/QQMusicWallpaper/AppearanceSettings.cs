@@ -85,6 +85,8 @@ internal sealed class ExplorerAppearanceSettings
             ExtendBottom == other.ExtendBottom && EdgeDepth == other.EdgeDepth;
     }
 
+    internal ExplorerAppearanceSettings Copy() { return (ExplorerAppearanceSettings)MemberwiseClone(); }
+
     internal string CreateTaskbarConfiguration(string seed)
     {
         string text = AppearanceIni.Set(seed, "Disabled", TaskbarAcrylic ? "0" : "1");
