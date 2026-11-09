@@ -2,7 +2,7 @@
 // @id              windows-11-file-explorer-styler
 // @name            Windows 11 File Explorer Styler
 // @description     Customize the File Explorer with themes contributed by others or create your own
-// @version         1.7-piaoklxt.3
+// @version         1.7-piaoklxt.4
 // @author          m417z
 // @github          https://github.com/m417z
 // @twitter         https://twitter.com/m417z
@@ -10148,6 +10148,8 @@ BOOL WINAPI EndPaint_Hook(HWND hWnd, const PAINTSTRUCT* lpPaint) {
     return EndPaint_Original(hWnd, lpPaint);
 }
 
+HWND GetNavigationTreeForDC(HDC hdc);
+
 // The content background is painted with the window color, which is white in
 // light mode. Fills of that color are replaced with transparent black.
 bool IsWindowBackgroundBrush(HDC hdc, HBRUSH hbr) {
@@ -10168,22 +10170,36 @@ bool IsWindowBackgroundBrush(HDC hdc, HBRUSH hbr) {
         color = logBrush.lbColor;
     }
 
-    return color == GetSysColor(COLOR_WINDOW);
+    if (color == GetSysColor(COLOR_WINDOW)) return true;
+    // Explorer assigns its dark navigation tree a custom background. It need
+    // not equal COLOR_WINDOW (which can remain white). Match the control's
+    // current background, never arbitrary dark brushes such as selections.
+    HWND tree = GetNavigationTreeForDC(hdc);
+    if (!tree || GetWindowThreadProcessId(tree, nullptr) != GetCurrentThreadId()) return false;
+    COLORREF background = TreeView_GetBkColor(tree);
+    return background != CLR_NONE && color == background;
 }
 
-bool IsNavigationBackgroundDC(HDC hdc) {
-    if (g_settings.sidebarAcrylic) return false;
+HWND GetNavigationTreeForDC(HDC hdc) {
     HWND h = WindowFromDC(hdc);
     if (!h) {
         const DCWnd* memory = GetMemoryDCWnd(hdc);
         if (memory) h = memory->hWnd;
     }
-    if (!h || !IsFileExplorerWindowPart(h)) return false;
+    if (!h || !IsFileExplorerWindowPart(h)) return nullptr;
+    HWND tree = nullptr;
     for (int depth = 0; h && depth < 32; ++depth, h = GetParent(h)) {
         WCHAR name[64];
-        if (GetClassNameW(h, name, ARRAYSIZE(name)) && !wcscmp(name, L"NamespaceTreeControl")) return true;
+        if (!GetClassNameW(h, name, ARRAYSIZE(name))) continue;
+        if (!wcscmp(name, WC_TREEVIEWW)) tree = h;
+        if (!wcscmp(name, L"NamespaceTreeControl"))
+            return tree ? tree : FindWindowExW(h, nullptr, WC_TREEVIEWW, nullptr);
     }
-    return false;
+    return nullptr;
+}
+
+bool IsNavigationBackgroundDC(HDC hdc) {
+    return !g_settings.sidebarAcrylic && GetNavigationTreeForDC(hdc) != nullptr;
 }
 
 COLORREF NavigationBaseColor() {

@@ -11,7 +11,7 @@ internal sealed class ControlPanelForm : Form
     private readonly CheckBox brightness = Check("MatchBrightness", "根据封面亮度自动切换应用明暗");
     private readonly CheckBox dark = Check("DarkApps", "应用默认使用深色模式");
     private readonly CheckBox explorerEnabled = Check("ExplorerEnabled", "启用文件资源管理器外观");
-    private readonly CheckBox sidebar = Check("SidebarAcrylic", "侧边栏使用亚克力");
+    private readonly CheckBox sidebar = Check("SidebarAcrylic", "左侧导航栏使用亚克力");
     private readonly TrackBar transparency = Slider("AcrylicTransparency", 0, 90);
     private readonly TrackBar gray = Slider("AcrylicGray", 0, 200);
     private readonly TrackBar headerTint = Slider("HeaderTint", 0, 100);
@@ -58,7 +58,7 @@ internal sealed class ControlPanelForm : Form
         Add(e, SliderRow("亚克力透明度", transparency, "%"));
         Add(e, SliderRow("底色亮度", gray, ""));
         Add(e, sidebar);
-        Add(e, Hint("关闭侧边栏亚克力后，使用不透明的系统明暗底色。"));
+        Add(e, Hint("控制左侧“桌面、下载、文档”一列；关闭后使用不透明底色。"));
         header.Items.AddRange(new object[] { "主题色（不透明）", "深灰底色（不透明）", "跟随文件区亚克力" });
         Add(e, new Label { Text = "顶部整体渲染", AutoSize = true, Margin = new Padding(0, 12, 0, 4) });
         Add(e, header);

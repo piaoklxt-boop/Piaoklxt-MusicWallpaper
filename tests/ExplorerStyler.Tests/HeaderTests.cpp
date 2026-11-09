@@ -10,11 +10,14 @@ bool TestNavigationBackground() {
     }
     HWND root = CreateWindowW(classes[0], L"", WS_OVERLAPPEDWINDOW, 0,0,300,200,nullptr,nullptr,nullptr,nullptr);
     HWND navigation = CreateWindowW(classes[1], L"", WS_CHILD, 0,0,80,150,root,nullptr,nullptr,nullptr);
+    INITCOMMONCONTROLSEX common{sizeof(common), ICC_TREEVIEW_CLASSES}; InitCommonControlsEx(&common);
+    HWND tree = CreateWindowW(WC_TREEVIEWW, L"", WS_CHILD, 0,0,80,150,navigation,nullptr,nullptr,nullptr);
+    TreeView_SetBkColor(tree, RGB(25,25,25)); // Captured dark navigation background; COLOR_WINDOW is white.
     HWND files = CreateWindowW(classes[2], L"", WS_CHILD, 0,0,200,150,root,nullptr,nullptr,nullptr);
     HDC navDC = GetDC(navigation), fileDC = GetDC(files);
     g_settings.sidebarAcrylic = false;
     bool classified = IsNavigationBackgroundDC(navDC) && !IsNavigationBackgroundDC(fileDC);
-    BufferedPaintInit(); FillRect_Original = FillRect;
+    BufferedPaintInit(); FillRect_Original = FillRect; PatBlt_Original = PatBlt;
     g_entireWindowEffectWndForThread = root;
     HDC dc = CreateCompatibleDC(nullptr);
     BITMAPINFO bi{}; bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -23,17 +26,38 @@ bool TestNavigationBackground() {
     HBITMAP bitmap = CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &pixels, nullptr, 0);
     auto previous = SelectObject(dc, bitmap);
     g_doubleBufferDCCountForThread = 1;
-    g_doubleBufferDCsForThread[0] = {dc, {navigation, true}};
+    g_doubleBufferDCsForThread[0] = {dc, {tree, true}};
     RECT area{0,0,8,8};
-    FillRect_Hook(dc, &area, GetSysColorBrush(COLOR_WINDOW));
+    HBRUSH navBrush = CreateSolidBrush(TreeView_GetBkColor(tree));
+    FillRect_Hook(dc, &area, navBrush);
     bool solid = static_cast<RGBQUAD*>(pixels)->rgbReserved == 255;
     g_settings.sidebarAcrylic = true;
-    FillRect_Hook(dc, &area, GetSysColorBrush(COLOR_WINDOW));
+    FillRect_Hook(dc, &area, navBrush);
     bool acrylic = *static_cast<DWORD*>(pixels) == 0;
+    // The other background fill path must obey the same control-level rule.
+    auto oldBrush = SelectObject(dc, navBrush);
+    g_settings.sidebarAcrylic = false;
+    PatBlt_Hook(dc, 0,0,8,8, PATCOPY);
+    bool patSolid = static_cast<RGBQUAD*>(pixels)->rgbReserved == 255;
+    g_settings.sidebarAcrylic = true;
+    PatBlt_Hook(dc, 0,0,8,8, PATCOPY);
+    bool patAcrylic = *static_cast<DWORD*>(pixels) == 0;
+    SelectObject(dc, oldBrush);
+    g_settings.sidebarAcrylic = false;
+    HBRUSH selection = CreateSolidBrush(RGB(80,90,100));
+    bool selectionUntouched = !IsWindowBackgroundBrush(dc, selection);
+    DeleteObject(selection);
+    g_doubleBufferDCsForThread[0].wnd.hWnd = files;
+    FillRect_Hook(dc, &area, navBrush);
+    bool filesUntouched = (*static_cast<DWORD*>(pixels) & 0xFFFFFF) == 0x191919;
+    FillRect_Hook(dc, &area, GetSysColorBrush(COLOR_WINDOW));
+    bool fileAcrylic = *static_cast<DWORD*>(pixels) == 0;
+    DeleteObject(navBrush);
+    if (!solid || !acrylic) printf("Navigation dark-background regression: opaque=%d transparent=%d\n", solid, acrylic);
     SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
     g_doubleBufferDCCountForThread = 0; g_entireWindowEffectWndForThread = nullptr;
     ReleaseDC(navigation, navDC); ReleaseDC(files, fileDC); DestroyWindow(root);
-    return classified && solid && acrylic;
+    return classified && solid && acrylic && patSolid && patAcrylic && selectionUntouched && filesUntouched && fileAcrylic;
 }
 
 int main() {
