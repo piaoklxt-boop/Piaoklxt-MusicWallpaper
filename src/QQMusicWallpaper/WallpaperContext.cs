@@ -516,7 +516,7 @@ internal sealed class WallpaperContext : ApplicationContext
         if (controlPanel != null && !controlPanel.IsDisposed)
         {
             if (controlPanel.WindowState == FormWindowState.Minimized) controlPanel.WindowState = FormWindowState.Normal;
-            controlPanel.Activate();
+            PresentControlPanel();
             return;
         }
         controlPanel = new ControlPanelForm(
@@ -532,7 +532,27 @@ internal sealed class WallpaperContext : ApplicationContext
                 context.RequestApply(theme, completed);
             });
         };
+        PresentControlPanel();
+    }
+
+    private void PresentControlPanel()
+    {
+        // A tray request must show a hidden modeless form, not just activate it.
+        // Native hiding can leave WinForms' managed Visible state stale.
+        if (controlPanel.IsHandleCreated && !Native.IsWindowVisible(controlPanel.Handle)) controlPanel.Hide();
         controlPanel.Show();
+        if (!Native.IsWindowVisible(controlPanel.Handle)) Native.ShowWindow(controlPanel.Handle, 9);
+        controlPanel.Activate();
+        var presentedPanel = controlPanel;
+        presentedPanel.BeginInvoke((MethodInvoker)delegate
+        {
+            if (presentedPanel.IsDisposed || !presentedPanel.IsHandleCreated) return;
+            // Shown handlers run through the message loop after Show returns.
+            if (!Native.IsWindowVisible(presentedPanel.Handle))
+                Native.ShowWindow(presentedPanel.Handle, 4);
+        });
+        Log("Control panel presented: visible=" + Native.IsWindowVisible(controlPanel.Handle) +
+            "; state=" + controlPanel.WindowState);
     }
 
 	private void RedetectQQMusic(bool notify)

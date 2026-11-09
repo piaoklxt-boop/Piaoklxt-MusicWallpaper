@@ -17,6 +17,8 @@ internal static class ControlPanelRegression
         run("control panel settings survive a newer runtime seed", SettingsSurviveSeedUpgrade);
         run("control panel clamps malformed settings and emits invariant XAML", ConfigurationBoundaries);
         run("control panel applies explicit values once and permits retry on failure", ApplyLifecycle);
+        run("control panel first presentation recovers native hiding during show", FirstShowPanel);
+        run("control panel reopening restores a hidden existing window", ReopenHiddenPanel);
         run("control panel native layout renders without external app automation", RenderPanel);
         run("header backgrounds do not cover native caption controls", CaptionSurfaceUnstyled);
     }
@@ -115,6 +117,45 @@ internal static class ControlPanelRegression
             Click(apply);
             form.Dispose();
             finish(null); // Completion after closing a panel must not escape onto the worker thread.
+        }
+    }
+    private static void FirstShowPanel()
+    {
+        using (var form = new ControlPanelForm(new ThemePreferences(), new ExplorerAppearanceSettings { Transparency = 90, SidebarAcrylic = false, HeaderTint = 93 }))
+        {
+            form.ShowInTaskbar = false;
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-18000, -18000);
+            Assert(!form.IsHandleCreated, "First-show fixture must not precreate the window.");
+            var controller = (WallpaperContext)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(WallpaperContext));
+            typeof(WallpaperContext).GetField("controlPanel", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(controller, form);
+            form.Shown += delegate { Native.ShowWindow(form.Handle, 0); };
+            typeof(WallpaperContext).GetMethod("PresentControlPanel", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(controller, null);
+            Application.DoEvents();
+            Assert(Native.IsWindowVisible(form.Handle), "First Show left the native panel hidden.");
+        }
+    }
+    private static void ReopenHiddenPanel()
+    {
+        var controller = (WallpaperContext)System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(WallpaperContext));
+        using (var form = new ControlPanelForm(new ThemePreferences(), new ExplorerAppearanceSettings()))
+        {
+            form.ShowInTaskbar = false;
+            form.StartPosition = FormStartPosition.Manual;
+            form.Location = new Point(-18000, -18000);
+            IntPtr handle = form.Handle;
+            Native.SetWindowLongPtr(handle, -20, new IntPtr(Native.GetWindowLongPtr(handle, -20).ToInt64() | 0x08000000L));
+            typeof(WallpaperContext).GetField("controlPanel", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(controller, form);
+            Find<TrackBar>(form, "AcrylicTransparency").Value = 73;
+            Assert(!Native.IsWindowVisible(handle), "Fixture must start hidden.");
+            typeof(WallpaperContext).GetMethod("ShowControlPanel", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(controller, null);
+            Application.DoEvents();
+            Assert(Native.IsWindowVisible(handle), "Reopening an existing panel did not make its native window visible.");
+            Native.ShowWindow(handle, 0);
+            typeof(WallpaperContext).GetMethod("ShowControlPanel", BindingFlags.NonPublic | BindingFlags.Instance).Invoke(controller, null);
+            Application.DoEvents();
+            Assert(Native.IsWindowVisible(handle), "Native hiding left the managed form permanently hidden.");
+            Assert(Find<TrackBar>(form, "AcrylicTransparency").Value == 73, "Reopening discarded unapplied settings.");
         }
     }
     private static void RenderPanel()
