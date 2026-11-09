@@ -89,9 +89,9 @@ internal sealed class ExplorerAppearanceSettings
         string[] targets = {
             "Grid#NavigationBarControlGrid",
             "FileExplorerExtensions.CommandBarControl_Wave1 > Grid, Grid#CommandBarControlRootGrid",
-            "CommandBar#FileExplorerCommandBar", "CommandBar#FileExplorerSecondaryCommandBar",
-            "Grid#TabContainerGrid", "Grid#ContentRoot",
-            "FileExplorerExtensions.NavigationBarControl, FileExplorerExtensions.CommandBarControl_Wave1, FileExplorerExtensions.CommandBarControl, FileExplorerExtensions.FileExplorerTabControl"
+            "CommandBar#FileExplorerCommandBar", "CommandBar#FileExplorerSecondaryCommandBar"
+            // Keep caption-hosting tab/root surfaces native: opaque backgrounds
+            // there hide minimize, maximize and close, including hover feedback.
         };
         var styles = new StringBuilder();
         for (int i = 0; i < targets.Length; i++)

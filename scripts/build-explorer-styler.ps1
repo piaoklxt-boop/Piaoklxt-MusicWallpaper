@@ -18,13 +18,13 @@ try {
         '-DWINVER=0x0A00', '-D_WIN32_WINNT=0x0A00', '-D_WIN32_IE=0x0A00',
         '-DNTDDI_VERSION=0x0A000008', '-D__USE_MINGW_ANSI_STDIO=0', '-DWH_MOD',
         '-DWH_MOD_ID=L"windows-11-file-explorer-styler"',
-        '-DWH_MOD_VERSION=L"1.7-piaoklxt.4"', '-include', 'windhawk_api.h',
+        '-DWH_MOD_VERSION=L"1.7-piaoklxt.5"', '-include', 'windhawk_api.h',
         '-target', 'x86_64-w64-mingw32', "-ffile-prefix-map=$repo=.")
     $libs = @('-lcomctl32', '-ld2d1', '-ldwmapi', '-lgdi32', '-lmsimg32',
         '-lole32', '-loleaut32', '-lruntimeobject', '-lshlwapi', '-luxtheme')
     $source = 'third_party/ExplorerThemeRuntime/licenses/windows-11-file-explorer-styler.wh.cpp'
     & $compiler @common -shared $engine -x c++ $source '-Wl,--export-all-symbols' `
-        -o (Join-Path $out 'windows-11-file-explorer-styler_1.7_piaoklxt4.dll') @libs `
+        -o (Join-Path $out 'windows-11-file-explorer-styler_1.7_piaoklxt5.dll') @libs `
         *> (Join-Path $out 'mod-build.log')
     if ($LASTEXITCODE -ne 0) { throw "Native mod build failed. See $out/mod-build.log" }
     & $compiler @common -DWH_EDITING tests/ExplorerStyler.Tests/HeaderTests.cpp `
@@ -36,5 +36,5 @@ try {
     $testExit = $LASTEXITCODE
     Get-Content (Join-Path $out 'tests-run.log')
     if ($testExit -ne 0) { throw 'Header brush regressions failed.' }
-    Get-FileHash (Join-Path $out 'windows-11-file-explorer-styler_1.7_piaoklxt4.dll') -Algorithm SHA256
+    Get-FileHash (Join-Path $out 'windows-11-file-explorer-styler_1.7_piaoklxt5.dll') -Algorithm SHA256
 } finally { Pop-Location }

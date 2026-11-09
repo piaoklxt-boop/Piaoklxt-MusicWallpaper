@@ -2,7 +2,7 @@
 // @id              windows-11-file-explorer-styler
 // @name            Windows 11 File Explorer Styler
 // @description     Customize the File Explorer with themes contributed by others or create your own
-// @version         1.7-piaoklxt.4
+// @version         1.7-piaoklxt.5
 // @author          m417z
 // @github          https://github.com/m417z
 // @twitter         https://twitter.com/m417z
@@ -10563,13 +10563,14 @@ BOOL ExtTextOutWithAlpha(HDC hdc,
                          const RECT* lprect,
                          LPCWSTR lpString,
                          UINT c,
-                         const INT* lpDx) {
+                         const INT* lpDx,
+                         bool forceAlphaText = false) {
     auto original = [=]() {
         return ExtTextOutW_Original(hdc, x, y, options, lprect, lpString, c,
                                     lpDx);
     };
 
-    if (!lpString || !c || !options || (GetTextAlign(hdc) & TA_UPDATECP)) {
+    if (!lpString || !c || (!options && !forceAlphaText) || (GetTextAlign(hdc) & TA_UPDATECP)) {
         return original();
     }
 
@@ -10660,6 +10661,29 @@ BOOL WINAPI ExtTextOutW_Hook(HDC hdc,
     if (!IsEntireWindowEffectDC(hdc)) {
         return ExtTextOutW_Original(hdc, x, y, options, lprect, lpString, c,
                                     lpDx);
+    }
+
+    // Tree rows use zero-character ETO_OPAQUE fills as well as FillRect.
+    // Handle the row background before the text helper's empty-string exit;
+    // ordinary GDI would clear alpha and punch holes in an opaque sidebar.
+    if ((options & ETO_OPAQUE) && lprect && !IsRectEmpty(lprect) &&
+        GetNavigationTreeForDC(hdc)) {
+        COLORREF color = GetBkColor(hdc);
+        HBRUSH brush = CreateSolidBrush(color);
+        bool baseBackground = IsWindowBackgroundBrush(hdc, brush);
+        DeleteObject(brush);
+        bool painted;
+        if (baseBackground && g_settings.sidebarAcrylic) {
+            painted = FillRect_Original(hdc, lprect, (HBRUSH)GetStockObject(BLACK_BRUSH)) != 0;
+        } else {
+            painted = FillRectWithAlpha(hdc, lprect,
+                baseBackground ? NavigationBaseColor() : color, 255);
+        }
+        if (painted) {
+            if (!lpString || !c) return TRUE;
+            return ExtTextOutWithAlpha(hdc, x, y, options & ~ETO_OPAQUE,
+                lprect, lpString, c, lpDx, true);
+        }
     }
 
     bool windowBk =

@@ -18,6 +18,20 @@ internal static class ControlPanelRegression
         run("control panel clamps malformed settings and emits invariant XAML", ConfigurationBoundaries);
         run("control panel applies explicit values once and permits retry on failure", ApplyLifecycle);
         run("control panel native layout renders without external app automation", RenderPanel);
+        run("header backgrounds do not cover native caption controls", CaptionSurfaceUnstyled);
+    }
+    private static void CaptionSurfaceUnstyled()
+    {
+        foreach (ExplorerHeaderStyle style in Enum.GetValues(typeof(ExplorerHeaderStyle)))
+        {
+            var settings = new ExplorerAppearanceSettings { HeaderStyle = style };
+            string config = settings.CreateRuntimeConfiguration("[Mod]\nDisabled=0\n[Settings]\n");
+            Assert(!config.Contains(".target=Grid#TabContainerGrid") && !config.Contains(".target=Grid#ContentRoot") &&
+                !config.Contains("FileExplorerExtensions.FileExplorerTabControl"),
+                "A header background covers the native caption-button surface.");
+            Assert(config.Contains("Grid#NavigationBarControlGrid") && config.Contains("CommandBar#FileExplorerCommandBar"),
+                "Navigation and command bar styling disappeared with the caption fix.");
+        }
     }
     private static void Assert(bool value, string message) { if (!value) throw new Exception(message); }
     private static string TemporaryDirectory()

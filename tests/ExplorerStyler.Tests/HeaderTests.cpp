@@ -31,6 +31,21 @@ bool TestNavigationBackground() {
     HBRUSH navBrush = CreateSolidBrush(TreeView_GetBkColor(tree));
     FillRect_Hook(dc, &area, navBrush);
     bool solid = static_cast<RGBQUAD*>(pixels)->rgbReserved == 255;
+    ExtTextOutW_Original = ExtTextOutW;
+    SetBkColor(dc, RGB(25,25,25));
+    // Common controls clear item rows with ETO_OPAQUE and zero characters.
+    ExtTextOutW_Hook(dc, 0,0, ETO_OPAQUE, &area, nullptr, 0, nullptr);
+    bool rowOpaque = static_cast<RGBQUAD*>(pixels)->rgbReserved == 255;
+    ExtTextOutW_Hook(dc, 0,0, ETO_OPAQUE, &area, L"A", 1, nullptr);
+    bool textOpaque = static_cast<RGBQUAD*>(pixels)[63].rgbReserved == 255;
+    g_settings.sidebarAcrylic = true;
+    ExtTextOutW_Hook(dc, 0,0, ETO_OPAQUE, &area, nullptr, 0, nullptr);
+    bool rowTransparent = *static_cast<DWORD*>(pixels) == 0;
+    SetBkColor(dc, RGB(80,90,100));
+    ExtTextOutW_Hook(dc, 0,0, ETO_OPAQUE, &area, nullptr, 0, nullptr);
+    bool rowSelected = *static_cast<DWORD*>(pixels) == 0xFF505A64;
+    g_settings.sidebarAcrylic = false;
+    if (!rowOpaque) puts("Navigation row erasure punched a transparent hole in the opaque pane.");
     g_settings.sidebarAcrylic = true;
     FillRect_Hook(dc, &area, navBrush);
     bool acrylic = *static_cast<DWORD*>(pixels) == 0;
@@ -57,7 +72,7 @@ bool TestNavigationBackground() {
     SelectObject(dc, previous); DeleteObject(bitmap); DeleteDC(dc);
     g_doubleBufferDCCountForThread = 0; g_entireWindowEffectWndForThread = nullptr;
     ReleaseDC(navigation, navDC); ReleaseDC(files, fileDC); DestroyWindow(root);
-    return classified && solid && acrylic && patSolid && patAcrylic && selectionUntouched && filesUntouched && fileAcrylic;
+    return rowOpaque && textOpaque && rowTransparent && rowSelected && classified && solid && acrylic && patSolid && patAcrylic && selectionUntouched && filesUntouched && fileAcrylic;
 }
 
 int main() {

@@ -54,13 +54,13 @@ internal sealed class ControlPanelForm : Form
         tabs.TabPages.Add(themePage.Item1);
         var e = explorerPage.Item2;
         Add(e, explorerEnabled);
-        Add(e, Hint("文件区与预览区共用亚克力。关闭总开关可恢复系统原样。"));
+        Add(e, Hint("文件区与预览区共用亚克力；顶部样式作用于地址栏和命令栏。"));
         Add(e, SliderRow("亚克力透明度", transparency, "%"));
         Add(e, SliderRow("底色亮度", gray, ""));
         Add(e, sidebar);
         Add(e, Hint("控制左侧“桌面、下载、文档”一列；关闭后使用不透明底色。"));
         header.Items.AddRange(new object[] { "主题色（不透明）", "深灰底色（不透明）", "跟随文件区亚克力" });
-        Add(e, new Label { Text = "顶部整体渲染", AutoSize = true, Margin = new Padding(0, 12, 0, 4) });
+        Add(e, new Label { Text = "顶部内容区渲染", AutoSize = true, Margin = new Padding(0, 12, 0, 4) });
         Add(e, header);
         Add(e, SliderRow("顶部主题色强度", headerTint, "%"));
         var t = themePage.Item2;
