@@ -52,6 +52,7 @@ private:
     void OnCaptureStarted(
         winrt::Windows::Graphics::Capture::GraphicsCaptureItem const& item, 
         CaptureType captureType);
+    void UpdateDesktopViewport();
 
 private:
     HWND m_windowComboBox = nullptr;
@@ -77,4 +78,6 @@ private:
     bool m_isSecondaryWindowsFeaturePresent = false;
     int m_width = 0;
     int m_height = 0;
+    bool m_extendBottom = false;
+    int m_edgeDepth = 1;
 };

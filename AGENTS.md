@@ -25,7 +25,7 @@ Preserve the capture-first architecture in [ADR 0001](docs/adr/0001-desktop-capt
 - Derive the timeline from the active current/total-time controls. A seek gesture leaves real cursor movement to Windows and commits one seek on release.
 - Give an open native popup its own click and wheel routing. Close source-player transient UI through its control lifecycle; reserve Escape for independent popup surfaces.
 - Treat comments as an accessory window: invoke its semantic launcher, restore that window into the work area, and dismiss it on a blank desktop click. Preserve the selected snapshot through invocation; cancel delayed probes and their retries when their click, source geometry, cursor or validity deadline changes.
-- Keep controller overlays limited to volume and playback order. Playback order uses native buttons and explicit `/playmode 1..4` values.
+- Keep controller overlays limited to volume, playback order and verified editable source controls. Text entry uses the semantic editor described in ADR 0003. Playback order uses native buttons and explicit `/playmode 1..4` values.
 
 ## Change workflow
 

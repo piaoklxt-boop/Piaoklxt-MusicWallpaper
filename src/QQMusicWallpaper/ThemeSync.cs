@@ -81,6 +81,7 @@ namespace QQMusicWallpaperThemeSync
         private bool matchBrightness;
         private bool colorizeShell;
         private bool darkApps;
+        private QQMusicWallpaper.ThemePalette palette;
         private bool wallpaperSessionActive;
         private Color lastColor = Color.Empty;
         private bool? lastLight;
@@ -175,6 +176,7 @@ namespace QQMusicWallpaperThemeSync
                         matchBrightness = preferences.MatchBrightness;
                         colorizeShell = preferences.ColorizeShell;
                         darkApps = preferences.DarkApps;
+                        palette = preferences.Palette;
                         if (!wasEnabled && enabled && wallpaperSessionActive) ThemeRegistry.Backup(backupPath);
                         SaveSettings();
                         lastColor = Color.Empty;
@@ -210,6 +212,7 @@ namespace QQMusicWallpaperThemeSync
 
         private void ReadSettings()
         {
+            palette = QQMusicWallpaper.ThemePreferences.Load(settingsPath).Palette;
             if (!File.Exists(settingsPath)) return;
             foreach (string line in File.ReadAllLines(settingsPath))
             {
@@ -225,7 +228,8 @@ namespace QQMusicWallpaperThemeSync
             File.WriteAllText(settingsPath, "Enabled=" + (enabled ? "1" : "0") + Environment.NewLine +
                 "MatchBrightness=" + (matchBrightness ? "1" : "0") + Environment.NewLine +
                 "ColorizeShell=" + (colorizeShell ? "1" : "0") + Environment.NewLine +
-                "DarkApps=" + (darkApps ? "1" : "0") + Environment.NewLine, Encoding.UTF8);
+                "DarkApps=" + (darkApps ? "1" : "0") + Environment.NewLine +
+                "Palette=" + (int)palette + Environment.NewLine, Encoding.UTF8);
             UpdateMenu();
         }
 
@@ -325,7 +329,15 @@ namespace QQMusicWallpaperThemeSync
                 try
                 {
                     Color color; double brightness;
-                    if (!Sampler.TrySample(out color, out brightness)) return;
+                    if (palette == QQMusicWallpaper.ThemePalette.Artwork)
+                    {
+                        if (!Sampler.TrySample(out color, out brightness)) return;
+                    }
+                    else
+                    {
+                        color = QQMusicWallpaper.ThemePaletteColors.Resolve(palette, (DateTime.UtcNow - new DateTime(2020, 1, 1)).TotalSeconds);
+                        brightness = color.GetBrightness();
+                    }
                     int delta = lastColor.IsEmpty ? 1000 : Math.Abs(color.R - lastColor.R) + Math.Abs(color.G - lastColor.G) + Math.Abs(color.B - lastColor.B);
                     bool light = brightness > 0.61;
                     if (force || delta > 35 || (matchBrightness && lastLight.HasValue && lastLight.Value != light))

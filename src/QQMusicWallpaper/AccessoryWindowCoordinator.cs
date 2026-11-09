@@ -50,6 +50,7 @@ internal sealed class AccessoryWindowCoordinator
 		public readonly Rectangle? AnchorBounds;
 		public readonly Point? SourceAnchor;
 		public int Completed;
+		public string ExpectedPopupLabel;
 		public readonly long Started = Stopwatch.GetTimestamp();
 		public PopupPresentationRequest(long sequence, long click, IntPtr source, Native.RECT sourceRect,
 			Func<bool> additionalCurrent, Rectangle? anchorBounds, Point? sourceAnchor)
@@ -120,7 +121,7 @@ internal sealed class AccessoryWindowCoordinator
 			// Let the posted launcher click be processed before considering a reused
 			// visible window. A hidden result must never be shown again by this worker.
 			Thread.Sleep(100);
-			while ((Stopwatch.GetTimestamp() - request.Started) * 1000.0 / Stopwatch.Frequency < 5000)
+			while ((Stopwatch.GetTimestamp() - request.Started) * 1000.0 / Stopwatch.Frequency < (controlName == "Application control" ? 900 : 5000))
 			{
 				if (!IsQQPopupPresentationCurrent(request)) return;
 				HashSet<IntPtr> current = GetVisibleQQTopLevelWindows();
@@ -133,6 +134,9 @@ internal sealed class AccessoryWindowCoordinator
 						(!request.AnchorBounds.HasValue || !matchingPublished.Contains(candidate))) continue;
 					int score = GetQQPopupCandidateScore(candidate, controlName,
 						visibleBefore.Contains(candidate));
+                    if (controlName == "Application control")
+                        score = !visibleBefore.Contains(candidate) &&
+                            IsSemanticOwnedPopup(candidate, request.Source, request.ExpectedPopupLabel) ? 3 : 0;
 					if (semanticPublished.Contains(candidate) && IsOwnedUntitledPanel(candidate, request.Source, controlName) ||
 						RecognizeAccompanimentPanel(candidate, request, controlName, probes))
 						score = visibleBefore.Contains(candidate) ? 2 : 3;
@@ -168,6 +172,11 @@ internal sealed class AccessoryWindowCoordinator
 			}
 			if (IsQQPopupPresentationCurrent(request))
 			{
+                if (controlName == "Application control" && !ambiguous)
+                {
+                    Finish(request, InteractionOutcome.Delivered);
+                    return;
+                }
 				bool closed = !ambiguous && matchingPublished.Count > 0 &&
 					!GetVisibleQQTopLevelWindows().Overlaps(matchingPublished);
 				Finish(request, closed ? InteractionOutcome.Closed :
@@ -262,6 +271,18 @@ internal sealed class AccessoryWindowCoordinator
 		}
 		return probe.Recognized;
 	}
+
+    internal static bool IsSemanticOwnedPopup(IntPtr candidate, IntPtr source, string label)
+    {
+        if (string.IsNullOrWhiteSpace(label) || label.Length > 64 || candidate == source ||
+            !Native.IsWindowVisible(candidate) || Native.GetAncestor(candidate, 3) != source) return false;
+        Native.GetWindowThreadProcessId(candidate, out var candidatePid);
+        Native.GetWindowThreadProcessId(source, out var sourcePid);
+        if (sourcePid == 0 || candidatePid != sourcePid) return false;
+        var title = new StringBuilder(256);
+        Native.GetWindowText(candidate, title, title.Capacity);
+        return string.Equals(title.ToString(), label, StringComparison.OrdinalIgnoreCase);
+    }
 
 	public static int GetQQPopupCandidateScore(IntPtr candidate, string controlName,
 		bool wasVisible)

@@ -32,6 +32,7 @@ public:
 
     void StopCapture();
     void InitializeWithWindow(HWND window);
+    void SetDesktopViewport(float width, float height, float extension, int edgeDepth);
 
 private:
     void StartCaptureFromItem(winrt::Windows::Graphics::Capture::GraphicsCaptureItem item);
@@ -43,6 +44,8 @@ private:
     winrt::Windows::UI::Composition::ContainerVisual m_root{ nullptr };
     winrt::Windows::UI::Composition::SpriteVisual m_content{ nullptr };
     winrt::Windows::UI::Composition::CompositionSurfaceBrush m_brush{ nullptr };
+    winrt::Windows::UI::Composition::SpriteVisual m_edge{ nullptr };
+    winrt::Windows::UI::Composition::CompositionVisualSurface m_edgeSurface{ nullptr };
 
     HWND m_mainWindow = nullptr;
 

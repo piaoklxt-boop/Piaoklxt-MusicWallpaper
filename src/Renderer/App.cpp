@@ -57,6 +57,32 @@ App::App(winrt::ContainerVisual root)
     }
 }
 
+void App::SetDesktopViewport(float width, float height, float extension, int edgeDepth)
+{
+    // Main capture and input geometry remain the work area. Only the strip below
+    // that surface is stretched; no texture readback and no second capture.
+    m_content.AnchorPoint({ 0, 0 });
+    m_content.RelativeOffsetAdjustment({ 0, 0, 0 });
+    m_content.RelativeSizeAdjustment({ 0, 0 });
+    m_content.Size({ width, height });
+    if (!m_edge)
+    {
+        m_edgeSurface = m_compositor.CreateVisualSurface();
+        m_edgeSurface.SourceVisual(m_content);
+        auto brush = m_compositor.CreateSurfaceBrush(m_edgeSurface);
+        brush.Stretch(winrt::CompositionStretch::Fill);
+        m_edge = m_compositor.CreateSpriteVisual();
+        m_edge.Brush(brush);
+        m_root.Children().InsertAtBottom(m_edge);
+    }
+    float strip = std::max(1.0f, height * std::clamp(edgeDepth, 1, 100) / 100.0f);
+    m_edgeSurface.SourceOffset({ 0, height - strip });
+    m_edgeSurface.SourceSize({ width, strip });
+    m_edge.Offset({ 0, height, 0 });
+    m_edge.Size({ width, std::max(0.0f, extension) });
+    m_edge.IsVisible(extension > 0);
+}
+
 winrt::GraphicsCaptureItem App::TryStartCaptureFromWindowHandle(HWND hwnd)
 {
     winrt::GraphicsCaptureItem item{ nullptr };

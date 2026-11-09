@@ -6,7 +6,7 @@ namespace QQMusicWallpaper;
 
 internal sealed class ControlPanelForm : Form
 {
-    private readonly CheckBox follow = Check("FollowArtwork", "随 QQ 音乐封面同步主题色");
+    private readonly CheckBox follow = Check("FollowArtwork", "启用统一主题色");
     private readonly CheckBox shell = Check("ColorizeShell", "任务栏和开始菜单跟随主题色");
     private readonly CheckBox brightness = Check("MatchBrightness", "根据封面亮度自动切换应用明暗");
     private readonly CheckBox dark = Check("DarkApps", "应用默认使用深色模式");
@@ -17,6 +17,11 @@ internal sealed class ControlPanelForm : Form
     private readonly TrackBar gray = Slider("AcrylicGray", 0, 200);
     private readonly TrackBar headerTint = Slider("HeaderTint", 0, 100);
     private readonly ComboBox header = new ComboBox { Name = "HeaderStyle", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top };
+    private readonly ComboBox palette = new ComboBox { Name = "ThemePalette", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top };
+    private readonly CheckBox taskbar = Check("TaskbarAcrylic", "任务栏使用亚克力");
+    private readonly CheckBox extendBottom = Check("ExtendBottom", "向下延伸壁纸底边至任务栏");
+    private readonly TrackBar taskbarTransparency = Slider("TaskbarTransparency", 0, 100);
+    private readonly TrackBar edgeDepth = Slider("EdgeDepth", 1, 100);
     private readonly Button apply = new Button { Name = "Apply", Text = "应用", AutoSize = true, MinimumSize = new Size(88, 32) };
     private readonly Button defaults = new Button { Name = "Defaults", Text = "恢复默认值", AutoSize = true, MinimumSize = new Size(104, 32) };
     private readonly Label status = new Label { Name = "Status", AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(0, 8, 0, 8) };
@@ -51,8 +56,10 @@ internal sealed class ControlPanelForm : Form
         root.Controls.Add(status, 0, 2);
 
         var explorerPage = Page("文件资源管理器");
-        var themePage = Page("主题同步");
+        var themePage = Page("统一主题");
+        var taskbarPage = Page("任务栏");
         tabs.TabPages.Add(explorerPage.Item1);
+        tabs.TabPages.Add(taskbarPage.Item1);
         tabs.TabPages.Add(themePage.Item1);
         var e = explorerPage.Item2;
         Add(e, explorerEnabled);
@@ -69,6 +76,15 @@ internal sealed class ControlPanelForm : Form
         Add(e, SliderRow("顶部主题色强度", headerTint, "%"));
         var t = themePage.Item2;
         Add(t, follow);
+        palette.Items.AddRange(new object[] { "跟随 QQ 音乐画面", "亚克力 · 中性", "暖色炫彩", "冷色炫彩", "全色炫彩" });
+        Add(t, palette);
+        Add(t, Hint("炫彩以两分钟为周期缓慢变色；任务栏与资源管理器共用主题色。资源管理器顶部选择“主题色”时同步显示。"));
+        var b = taskbarPage.Item2;
+        Add(b, taskbar);
+        Add(b, SliderRow("亚克力透明度", taskbarTransparency, "%"));
+        Add(b, extendBottom);
+        Add(b, SliderRow("底边采样深度", edgeDepth, "%"));
+        Add(b, Hint("仅延伸画面最下方的一条色带，不改变上方画面比例或点击位置。较小采样深度更接近底边纯色；开启任务栏亚克力可看到模糊后的延伸。"));
         Add(t, Hint("播放封面变化时自动取色。暂停动态壁纸后恢复原系统主题色。"));
         Add(t, shell);
         Add(t, brightness);
@@ -86,8 +102,9 @@ internal sealed class ControlPanelForm : Form
         Controls.Add(root);
         AcceptButton = apply;
         CancelButton = close;
-        foreach (var c in new[] { follow, shell, brightness, dark, explorerEnabled, sidebar, files }) c.CheckedChanged += delegate { MarkDirty(); };
-        foreach (var c in new[] { transparency, gray, headerTint }) c.ValueChanged += delegate { MarkDirty(); };
+        foreach (var c in new[] { follow, shell, brightness, dark, explorerEnabled, sidebar, files, taskbar, extendBottom }) c.CheckedChanged += delegate { MarkDirty(); };
+        foreach (var c in new[] { transparency, gray, headerTint, taskbarTransparency, edgeDepth }) c.ValueChanged += delegate { MarkDirty(); };
+        palette.SelectedIndexChanged += delegate { MarkDirty(); };
         header.SelectedIndexChanged += delegate { MarkDirty(); };
         apply.Click += delegate { Apply(); };
         LoadValues(theme, explorer);
@@ -136,12 +153,16 @@ internal sealed class ControlPanelForm : Form
         files.Checked = explorer.FileAreaAcrylic;
         transparency.Value = explorer.Transparency; gray.Value = explorer.TintGray;
         header.SelectedIndex = (int)explorer.HeaderStyle; headerTint.Value = explorer.HeaderTint;
+        palette.SelectedIndex = (int)theme.Palette;
+        taskbar.Checked = explorer.TaskbarAcrylic; taskbarTransparency.Value = explorer.TaskbarTransparency;
+        extendBottom.Checked = explorer.ExtendBottom; edgeDepth.Value = explorer.EdgeDepth;
         loading = false;
         UpdateAvailability();
     }
     private void UpdateAvailability()
     {
-        shell.Enabled = brightness.Enabled = follow.Checked;
+        shell.Enabled = brightness.Enabled = palette.Enabled = follow.Checked;
+        taskbarTransparency.Enabled = taskbar.Checked; edgeDepth.Enabled = extendBottom.Checked;
         dark.Enabled = follow.Checked && !brightness.Checked;
         transparency.Enabled = gray.Enabled = sidebar.Enabled = files.Enabled = header.Enabled = explorerEnabled.Checked;
         headerTint.Enabled = explorerEnabled.Checked && header.SelectedIndex == 0;
@@ -159,10 +180,11 @@ internal sealed class ControlPanelForm : Form
         return "enabled=" + explorerEnabled.Checked + ";files=" + files.Checked + ";sidebar=" + sidebar.Checked +
             ";transparency=" + transparency.Value + ";gray=" + gray.Value + ";header=" + header.SelectedIndex +
             ";tint=" + headerTint.Value + ";follow=" + follow.Checked + ";shell=" + shell.Checked +
-            ";brightness=" + brightness.Checked + ";dark=" + dark.Checked;
+            ";brightness=" + brightness.Checked + ";dark=" + dark.Checked + ";palette=" + palette.SelectedIndex +
+            ";taskbar=" + taskbar.Checked + ";taskbarTransparency=" + taskbarTransparency.Value + ";edge=" + extendBottom.Checked + ";depth=" + edgeDepth.Value;
     }
-    internal ExplorerAppearanceSettings ReadExplorer() { return new ExplorerAppearanceSettings { Enabled = explorerEnabled.Checked, Transparency = transparency.Value, TintGray = gray.Value, SidebarAcrylic = sidebar.Checked, FileAreaAcrylic = files.Checked, HeaderStyle = (ExplorerHeaderStyle)header.SelectedIndex, HeaderTint = headerTint.Value }; }
-    internal ThemePreferences ReadTheme() { return new ThemePreferences { Enabled = follow.Checked, ColorizeShell = shell.Checked, MatchBrightness = brightness.Checked, DarkApps = dark.Checked }; }
+    internal ExplorerAppearanceSettings ReadExplorer() { return new ExplorerAppearanceSettings { Enabled = explorerEnabled.Checked, Transparency = transparency.Value, TintGray = gray.Value, SidebarAcrylic = sidebar.Checked, FileAreaAcrylic = files.Checked, HeaderStyle = (ExplorerHeaderStyle)header.SelectedIndex, HeaderTint = headerTint.Value, TaskbarAcrylic = taskbar.Checked, TaskbarTransparency = taskbarTransparency.Value, ExtendBottom = extendBottom.Checked, EdgeDepth = edgeDepth.Value }; }
+    internal ThemePreferences ReadTheme() { return new ThemePreferences { Enabled = follow.Checked, ColorizeShell = shell.Checked, MatchBrightness = brightness.Checked, DarkApps = dark.Checked, Palette = (ThemePalette)palette.SelectedIndex }; }
     private void Apply()
     {
         if (applying || ApplyRequested == null) return;

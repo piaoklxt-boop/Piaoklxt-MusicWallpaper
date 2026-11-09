@@ -68,6 +68,13 @@ SampleWindow::SampleWindow(int width, int height, std::shared_ptr<App> app)
     m_app->InitializeWithWindow(m_window);
     m_width = width;
     m_height = height;
+    wchar_t option[16] = {};
+    if (GetEnvironmentVariableW(L"QQMUSIC_WALLPAPER_EDGE_DEPTH", option, ARRAYSIZE(option)))
+    {
+        int depth = _wtoi(option);
+        m_extendBottom = depth > 0;
+        m_edgeDepth = std::clamp(depth, 1, 100);
+    }
     SetLayeredWindowAttributes(m_window, 0, 255, LWA_ALPHA);
 
 }
@@ -128,7 +135,26 @@ bool SampleWindow::AttachToDesktop()
         L"renderer attached between shell view=%p and WorkerW=%p under Progman=%p",
         shellView, worker, progman);
     RuntimeLog(detail);
+    UpdateDesktopViewport();
     return true;
+}
+
+void SampleWindow::UpdateDesktopViewport()
+{
+    RECT work = {};
+    if (!SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) return;
+    MONITORINFO monitor{ sizeof(monitor) };
+    if (!GetMonitorInfoW(MonitorFromRect(&work, MONITOR_DEFAULTTOPRIMARY), &monitor)) return;
+    int extension = m_extendBottom ? std::max(0L, monitor.rcMonitor.bottom - work.bottom) : 0;
+    m_width = work.right - work.left;
+    m_height = work.bottom - work.top + extension;
+    m_app->SetDesktopViewport(static_cast<float>(m_width), static_cast<float>(work.bottom - work.top),
+        static_cast<float>(extension), m_edgeDepth);
+    auto parent = GetParent(m_window);
+    if (!parent) return;
+    POINT origin{ work.left, work.top };
+    ScreenToClient(parent, &origin);
+    SetWindowPos(m_window, nullptr, origin.x, origin.y, m_width, m_height, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 SampleWindow::~SampleWindow()
@@ -138,6 +164,16 @@ SampleWindow::~SampleWindow()
 
 LRESULT SampleWindow::MessageHandler(UINT const message, WPARAM const wparam, LPARAM const lparam)
 {
+    static const UINT edgeSettings = RegisterWindowMessageW(L"PiaoklxtMusicWallpaper.EdgeSettings.v1");
+    if (message == edgeSettings && m_app)
+    {
+        m_extendBottom = wparam != 0;
+        m_edgeDepth = std::clamp(static_cast<int>(lparam), 1, 100);
+        UpdateDesktopViewport();
+        return 0;
+    }
+    if ((message == WM_DISPLAYCHANGE || message == WM_SETTINGCHANGE) && m_app)
+        UpdateDesktopViewport();
     if (message == WM_CLOSE)
     {
         // The controller owns renderer lifetime through its job object.  Ignore

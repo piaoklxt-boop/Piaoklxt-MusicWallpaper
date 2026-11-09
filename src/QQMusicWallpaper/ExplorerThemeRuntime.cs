@@ -74,6 +74,8 @@ internal sealed class ExplorerThemeRuntime : IDisposable
         }
         string active = Path.Combine(AppPaths.DataDirectory, "ExplorerThemeRuntime/Engine/Mods/windows-11-file-explorer-styler.ini");
         string previous = File.Exists(active) ? File.ReadAllText(active) : null;
+        string taskbarActive = Path.Combine(Path.GetDirectoryName(active), "windows-11-taskbar-styler.ini");
+        string previousTaskbar = File.Exists(taskbarActive) ? File.ReadAllText(taskbarActive) : null;
         bool wasRunning = IsBundledRuntimeActive();
         if (wasRunning) StopRuntime();
         try
@@ -89,6 +91,8 @@ internal sealed class ExplorerThemeRuntime : IDisposable
             {
                 if (IsBundledRuntimeActive()) StopRuntime();
                 if (previous != null) AppearanceIni.WriteAtomic(active, previous, System.Text.Encoding.Unicode);
+                if (previousTaskbar != null) AppearanceIni.WriteAtomic(taskbarActive, previousTaskbar, System.Text.Encoding.Unicode);
+                else if (File.Exists(taskbarActive)) File.Delete(taskbarActive);
                 if (wasRunning) StartRuntime();
             }
             catch (Exception ex) { RuntimeLog.Write("Explorer appearance rollback failed: " + ex.Message); }
@@ -130,6 +134,12 @@ internal sealed class ExplorerThemeRuntime : IDisposable
         string relative = "Engine/Mods/windows-11-file-explorer-styler.ini";
         string seedText = File.ReadAllText(Path.Combine(seed, relative));
         AppearanceIni.WriteAtomic(Path.Combine(destination, relative), appearance.CreateRuntimeConfiguration(seedText), System.Text.Encoding.Unicode);
+        string taskbarRelative = "Engine/Mods/windows-11-taskbar-styler.ini";
+        string taskbarSeed = Path.Combine(seed, taskbarRelative);
+        if (File.Exists(taskbarSeed))
+            AppearanceIni.WriteAtomic(Path.Combine(destination, taskbarRelative),
+                appearance.CreateTaskbarConfiguration(File.ReadAllText(taskbarSeed)), System.Text.Encoding.Unicode);
+        else if (appearance.TaskbarAcrylic) throw new InvalidOperationException("缺少任务栏外观组件，请使用完整安装包。");
     }
 
 	private static void CopyTree(string source, string destination)

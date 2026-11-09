@@ -530,6 +530,7 @@ internal sealed class WallpaperContext : ApplicationContext
             explorerThemeRuntime.ApplyAsync(explorer, error =>
             {
                 if (error != null) { completed(error); return; }
+                RendererAppearance.Apply(rendererProcess, explorer);
                 context.RequestApply(theme, completed);
             });
         };
@@ -865,7 +866,10 @@ internal sealed class WallpaperContext : ApplicationContext
 			};
 			startInfo.EnvironmentVariables["QQMUSIC_WALLPAPER_TARGET_HWND"] =
 				qqWindow.ToInt64().ToString(System.Globalization.CultureInfo.InvariantCulture);
-			rendererProcess = Process.Start(startInfo);
+			var appearance = ExplorerAppearanceSettings.Load(ExplorerAppearanceSettings.SettingsPath);
+            startInfo.EnvironmentVariables["QQMUSIC_WALLPAPER_EDGE_DEPTH"] =
+                (appearance.ExtendBottom ? appearance.EdgeDepth : 0).ToString(System.Globalization.CultureInfo.InvariantCulture);
+            rendererProcess = Process.Start(startInfo);
 			if (rendererProcess != null && rendererJob != IntPtr.Zero && !Native.AssignProcessToJobObject(rendererJob, rendererProcess.Handle))
 			{
 				Log("Could not attach renderer to controller job; Win32=" + Marshal.GetLastWin32Error());
@@ -1745,11 +1749,16 @@ internal sealed class WallpaperContext : ApplicationContext
 	{
 		long sequence = Interlocked.Read(ref desktopClickSequence);
 		IntPtr source = qqWindow;
+        AccessibleTreeSnapshot snapshot = qqAccessibilitySnapshot;
+        if (!Native.GetWindowRect(source, out var hitRect)) return;
 		try
 		{
 			window.BeginInvoke((Action)delegate
 			{
-				if (sequence != Interlocked.Read(ref desktopClickSequence) || source != qqWindow) return;
+				if (sequence != Interlocked.Read(ref desktopClickSequence) || source != qqWindow ||
+                    !Native.GetWindowRect(source, out var dispatchRect) ||
+                    hitRect.Left != dispatchRect.Left || hitRect.Top != dispatchRect.Top ||
+                    hitRect.Right != dispatchRect.Right || hitRect.Bottom != dispatchRect.Bottom) return;
 				AccessibleControlSurface[] popupSurfaces = Accessories.Surfaces;
 				if (AccessibleSurfaceRouter.TryGetControlTargetAtPoint(point,
 					popupSurfaces, out IntPtr popupWindow,
@@ -1778,7 +1787,6 @@ internal sealed class WallpaperContext : ApplicationContext
 				}
 				if (!TryMapToSource(point, work, out var ignoredTarget,
 					out var sourcePoint)) return;
-				AccessibleTreeSnapshot snapshot = qqAccessibilitySnapshot;
 				if (Native.GetWindowRect(qqWindow, out var currentRect) &&
 					SemanticClickResolver.TryGetCommentAtPoint(snapshot,
 						Rectangle.FromLTRB(currentRect.Left, currentRect.Top, currentRect.Right, currentRect.Bottom),
@@ -1791,20 +1799,32 @@ internal sealed class WallpaperContext : ApplicationContext
 				bool found = snapshot.TryGetControlTargetAtPoint(
 					new Point(sourcePoint.X, sourcePoint.Y),
 					out AccessibleNodeSnapshot target);
-				bool presentsPopup = found && IsMoreControl(target);
+                if (found && target.Role == 42 && !target.ReadOnly)
+                {
+                    QueueTextEditor(source, target, work, hitRect, sequence);
+                    return;
+                }
+                bool more = found && IsMoreControl(target);
+                string popupLabel = string.IsNullOrWhiteSpace(target.Description) ? target.Name : target.Description;
+                bool presentsPopup = more || found && target.Role == 43 && !string.IsNullOrWhiteSpace(popupLabel);
 				HashSet<IntPtr> visibleBefore = presentsPopup
 					? GetVisibleQQTopLevelWindows() : null;
 				AccessoryWindowCoordinator.PopupPresentationRequest request = presentsPopup ? BeginQQPopupPresentation(sequence) : null;
-				bool invoked = found && PostQQControlClick(GetControlCenter(target));
+                if (request != null && !more) request.ExpectedPopupLabel = popupLabel;
+				bool invoked = found && PostSemanticClick(target);
 				if (!invoked && presentsPopup) Accessories.Finish(request, InteractionOutcome.DispatchFailed);
 				if (invoked && presentsPopup && IsQQPopupPresentationCurrent(request))
 				{
-					activeTransientToggleDescriptions = new[] { "更多", "More" };
+					activeTransientToggleDescriptions = more ? new[] { "更多", "More" } : new string[0];
 					activeTransientLauncher = null;
 					activeTransientPopupPersistent = true;
-					QueuePresentQQPopup(request, visibleBefore, work, "More");
+					QueuePresentQQPopup(request, visibleBefore, work, more ? "More" : "Application control");
 				}
-				if (!presentsPopup) nextAccessibilityRefresh = DateTime.MinValue;
+				if (!more)
+                {
+                    nextAccessibilityRefresh = DateTime.MinValue;
+                    QueueRefreshAfterAction(sequence, source);
+                }
 				if (!presentsPopup) Diagnostics.Complete(sequence, 0,
 					invoked ? InteractionOutcome.Delivered :
 					found ? InteractionOutcome.DispatchFailed : InteractionOutcome.TargetMissing);
@@ -1813,6 +1833,89 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 		catch { }
 	}
+
+    private void QueueRefreshAfterAction(long sequence, IntPtr source)
+    {
+        System.Threading.Timer refresh = null;
+        refresh = new System.Threading.Timer(_ =>
+        {
+            refresh.Dispose();
+            if (exiting || window.IsDisposed || !window.IsHandleCreated) return;
+            try
+            {
+                window.BeginInvoke((Action)delegate
+                {
+                    if (sequence != Interlocked.Read(ref desktopClickSequence) || source != qqWindow || exiting) return;
+                    nextAccessibilityRefresh = DateTime.MinValue;
+                    RefreshInteractiveAreasIfDue();
+                });
+            }
+            catch (InvalidOperationException) { }
+        }, null, Timeout.Infinite, Timeout.Infinite);
+        refresh.Change(150, Timeout.Infinite);
+    }
+
+    private SemanticTextEditor textEditor;
+    private void QueueTextEditor(IntPtr source, AccessibleNodeSnapshot target, Rectangle work,
+        Native.RECT sourceRect, long sequence)
+    {
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            string value = "";
+            bool available = QQMusicAccessibility.AccessTextValue(source, target, false, ref value);
+            if (!available)
+            {
+                Diagnostics.Complete(sequence, 0, InteractionOutcome.TargetMissing);
+                OperationLog.Record(OperationKind.DesktopInteraction, "text-value-unavailable");
+                return;
+            }
+            try
+            {
+            window.BeginInvoke((Action)delegate
+            {
+                if (sequence != Interlocked.Read(ref desktopClickSequence) || source != qqWindow || !TextSourceCurrent(source, sourceRect)) return;
+                if (textEditor != null && !textEditor.IsDisposed) textEditor.Close();
+                Rectangle anchor = target.Bounds;
+                anchor.Offset(work.Left - sourceRect.Left, work.Top - sourceRect.Top);
+                textEditor = new SemanticTextEditor(anchor, work, value, (entered, done) =>
+                {
+                    ThreadPool.QueueUserWorkItem(delegate
+                    {
+                        bool success = false;
+                        if (TextSourceCurrent(source, sourceRect))
+                        {
+                            success = QQMusicAccessibility.AccessTextValue(source, target, true, ref entered);
+                            if (success)
+                            {
+                                // Native click selects the verified editor; Enter is posted only to
+                                // that source input child, never sent as a global keyboard event.
+                                Point center = GetControlCenter(target);
+                                success = PostControlClick(source, center);
+                                IntPtr input = FindSourceInputTarget(new Native.POINT { X = center.X, Y = center.Y });
+                                if (success && input != IntPtr.Zero)
+                                {
+                                    success = Native.PostMessage(input, 0x100, new IntPtr(13), new IntPtr(1));
+                                    Native.PostMessage(input, 0x101, new IntPtr(13), new IntPtr(unchecked((int)0xC0000001)));
+                                }
+                                else success = false;
+                            }
+                        }
+                        nextAccessibilityRefresh = DateTime.MinValue;
+                        OperationLog.Record(OperationKind.DesktopInteraction, success ? "text-submitted" : "text-submit-failed");
+                        done(success);
+                    });
+                });
+                textEditor.Show();
+            });
+            }
+            catch (InvalidOperationException) { /* Controller closed during text lookup. */ }
+        });
+    }
+    private bool TextSourceCurrent(IntPtr source, Native.RECT expected)
+    {
+        return source == qqWindow && IsCurrentSourceWindow() && Native.GetWindowRect(source, out var actual) &&
+            expected.Left == actual.Left && expected.Top == actual.Top && expected.Right == actual.Right && expected.Bottom == actual.Bottom;
+    }
 
 	private void QueueToggleNativePlaylist(Rectangle work)
 	{
@@ -1975,7 +2078,31 @@ internal sealed class WallpaperContext : ApplicationContext
 		return PostControlClick(qqWindow, sourcePoint);
 	}
 
+    private IntPtr lastSemanticSource;
+    private AccessibleNodeSnapshot lastSemanticTarget;
+    private long lastSemanticClickTicks;
+    private long lastSemanticClickSequence;
+    private bool PostSemanticClick(AccessibleNodeSnapshot target)
+    {
+        long now = Stopwatch.GetTimestamp();
+        long sequence = Interlocked.Read(ref desktopClickSequence);
+        bool listLike = target.Role == 16 || target.Role == 29 || target.Role == 34 || target.Role == 36;
+        bool doubleClick = listLike && lastSemanticSource == qqWindow && sequence == lastSemanticClickSequence + 1 &&
+            target.Role == lastSemanticTarget.Role && target.Bounds == lastSemanticTarget.Bounds && target.Name == lastSemanticTarget.Name &&
+            (now - lastSemanticClickTicks) * 1000.0 / Stopwatch.Frequency <= SystemInformation.DoubleClickTime;
+        bool delivered = PostControlActivation(qqWindow, GetControlCenter(target), doubleClick);
+        lastSemanticSource = delivered && listLike && !doubleClick ? qqWindow : IntPtr.Zero;
+        lastSemanticTarget = target;
+        lastSemanticClickTicks = now;
+        lastSemanticClickSequence = sequence;
+        return delivered;
+    }
+
 	private bool PostControlClick(IntPtr controlWindow, Point screenPoint)
+    {
+        return PostControlActivation(controlWindow, screenPoint, false);
+    }
+    private bool PostControlActivation(IntPtr controlWindow, Point screenPoint, bool doubleClick)
 	{
 		if (!Native.IsWindow(controlWindow)) return false;
 		Native.POINT clientPoint = new Native.POINT
@@ -1986,11 +2113,11 @@ internal sealed class WallpaperContext : ApplicationContext
 		controlWindow = FindWindowInputTarget(controlWindow, clientPoint);
 		if (!Native.ScreenToClient(controlWindow, ref clientPoint)) return false;
 		IntPtr lParam = MakeLParam(clientPoint.X, clientPoint.Y);
-		uint[] messages = DesktopInputPolicy.GetControlActivationMessages();
+		uint[] messages = doubleClick ? new[] { WmMouseMove, 515u, WmLButtonUp } : DesktopInputPolicy.GetControlActivationMessages();
 		for (int index = 0; index < messages.Length; index++)
 		{
 			uint message = messages[index];
-			IntPtr keyState = message == WmLButtonDown ? new IntPtr(1) : IntPtr.Zero;
+			IntPtr keyState = message == WmLButtonDown || message == 515u ? new IntPtr(1) : IntPtr.Zero;
 			if (!Native.PostMessage(controlWindow, message, keyState, lParam)) return false;
 			if (message == WmLButtonDown)
 				Thread.Sleep(DesktopInputPolicy.ControlActivationHoldMilliseconds);
@@ -2281,6 +2408,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		nextAccessibilityRefresh = DateTime.UtcNow.AddMilliseconds(
 			DesktopInputPolicy.AccessibilityRefreshIntervalMilliseconds);
 		IntPtr source = qqWindow;
+        long scanClick = Interlocked.Read(ref desktopClickSequence);
 		Rectangle visibleArea = Screen.PrimaryScreen.WorkingArea;
 		ThreadPool.QueueUserWorkItem(delegate
 		{
@@ -2295,7 +2423,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				{
 					if (Native.GetWindowRect(source, out var sourceRect))
 					{
-						if (scanStart.Left != sourceRect.Left || scanStart.Top != sourceRect.Top ||
+						if (scanClick != Interlocked.Read(ref desktopClickSequence) || scanStart.Left != sourceRect.Left || scanStart.Top != sourceRect.Top ||
 							scanStart.Right != sourceRect.Right || scanStart.Bottom != sourceRect.Bottom)
 						{
 							nextAccessibilityRefresh = DateTime.MinValue;
@@ -2314,6 +2442,7 @@ internal sealed class WallpaperContext : ApplicationContext
 								visibleArea.Top - sourceRect.Top);
 							volumeControlAreas = new[] { volumeBounds };
 						}
+                        else volumeControlAreas = new Rectangle[0];
 						string[] playbackModes =
 						{
 							"随机播放", "顺序播放", "单曲循环", "列表循环",
@@ -2656,7 +2785,8 @@ internal sealed class WallpaperContext : ApplicationContext
 	{
 		// Only source controls are projected into the mirror. Independent native
 		// windows own desktop input exclusively through Accessories.Surfaces.
-		Rectangle[] result = snapshot.GetInteractiveBounds(AllAccessibleSpace, includeHidden: true);
+		Rectangle sourceBounds = Rectangle.FromLTRB(sourceRect.Left, sourceRect.Top, sourceRect.Right, sourceRect.Bottom);
+		Rectangle[] result = snapshot.GetInteractiveBounds(sourceBounds, includeHidden: false);
 		for (int index = 0; index < result.Length; index++)
 			result[index].Offset(visibleArea.Left - sourceRect.Left, visibleArea.Top - sourceRect.Top);
 		return result;
@@ -3119,6 +3249,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			SystemEvents.SessionSwitch -= OnSessionSwitch;
 			SystemEvents.PowerModeChanged -= OnPowerModeChanged;
 			if (controlPanel != null) controlPanel.Dispose();
+            if (textEditor != null) textEditor.Dispose();
 			tray.Visible = false;
 			tray.Dispose();
 			volumeOverlay.Dispose();

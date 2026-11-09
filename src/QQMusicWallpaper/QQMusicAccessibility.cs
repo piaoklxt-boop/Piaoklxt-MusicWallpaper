@@ -21,9 +21,9 @@ internal static class QQMusicAccessibility
 
 	private const uint ObjIdClient = 4294967292u;
 
-	private const int MaxDepth = 16;
+	private const int MaxDepth = 32;
 
-	private const int MaxNodes = 4096;
+	private const int MaxNodes = 8192;
 
 	private const long StateInvisible = 32768L;
 
@@ -57,22 +57,89 @@ internal static class QQMusicAccessibility
 			{
 				return new AccessibleTreeSnapshot(nodes.ToArray());
 			}
-			int visited = 0;
-			CaptureNodes(accessible, 0, ref visited, nodes);
+            return CaptureSnapshot(accessible);
 		}
 		catch { }
 		return new AccessibleTreeSnapshot(nodes.ToArray());
 	}
 
+    internal static AccessibleTreeSnapshot CaptureSnapshot(IAccessible accessible)
+    {
+        var nodes = new List<AccessibleNodeSnapshot>();
+        int visited = 0;
+        CaptureNodes(accessible, 0, ref visited, nodes);
+        return new AccessibleTreeSnapshot(nodes.ToArray());
+    }
+
+    internal static bool AccessTextValue(IAccessible accessible, AccessibleNodeSnapshot target, bool write, ref string value)
+    {
+        if (target.Role != 42 || target.ReadOnly || target.Hidden || target.Unavailable) return false;
+        int visited = 0;
+        return VisitText(accessible, 0, ref visited, target, write, ref value);
+    }
+
+    internal static bool AccessTextValue(IntPtr window, AccessibleNodeSnapshot target,
+        bool write, ref string value)
+    {
+        if (target.Role != 42 || target.ReadOnly || target.Hidden || target.Unavailable) return false;
+        object root = null;
+        Guid iid = typeof(IAccessible).GUID;
+        try
+        {
+            if (AccessibleObjectFromWindow(window, ObjIdClient, ref iid, ref root) != 0 || !(root is IAccessible accessible)) return false;
+            return AccessTextValue(accessible, target, write, ref value);
+        }
+        catch { return false; }
+    }
+
+    private static bool VisitText(IAccessible root, int depth, ref int visited,
+        AccessibleNodeSnapshot target, bool write, ref string value)
+    {
+        if (depth > MaxDepth || visited >= MaxNodes) return false;
+        int count;
+        try { count = root.accChildCount; } catch { return false; }
+        for (int i = 1; i <= count && visited++ < MaxNodes; i++)
+        {
+            IAccessible child = null;
+            try { child = root.get_accChild(i) as IAccessible; } catch { }
+            IAccessible node = child ?? root;
+            object id = child == null ? (object)i : 0;
+            try
+            {
+                long state = Convert.ToInt64(node.get_accState(id));
+                if ((state & (StateInvisible | 1)) != 0) continue;
+                if (Convert.ToInt32(node.get_accRole(id)) == 42 && (state & (64 | 0x20000000)) == 0)
+                {
+                    node.accLocation(out int x, out int y, out int w, out int h, id);
+                    if (target.Bounds == new Rectangle(x, y, w, h) &&
+                        (node.get_accName(id) ?? "") == target.Name)
+                    {
+                        if (write)
+                        {
+                            node.set_accValue(id, value);
+                            return string.Equals(node.get_accValue(id) ?? "", value, StringComparison.Ordinal);
+                        }
+                        value = node.get_accValue(id) ?? "";
+                        return true;
+                    }
+                }
+                if (child != null && VisitText(child, depth + 1, ref visited, target, write, ref value)) return true;
+            }
+            catch { }
+        }
+        return false;
+    }
+
 	private static void CaptureNodes(IAccessible accessible, int depth,
 		ref int visited, List<AccessibleNodeSnapshot> nodes)
 	{
-		if (depth > MaxDepth || visited++ > MaxNodes) return;
+		if (depth > MaxDepth || visited >= MaxNodes) return;
 		int childCount;
 		try { childCount = accessible.accChildCount; }
 		catch { return; }
-		for (int index = 1; index <= childCount; index++)
+		for (int index = 1; index <= childCount && visited < MaxNodes; index++)
 		{
+			visited++;
 			IAccessible child = null;
 			try { child = accessible.get_accChild(index) as IAccessible; }
 			catch { }
@@ -80,15 +147,19 @@ internal static class QQMusicAccessibility
 			object childId = child == null ? (object)index : 0;
 			int role = 0;
 			try { role = Convert.ToInt32(node.get_accRole(childId)); } catch { }
-			bool interactive = InteractiveRoles.Contains(role);
+			bool interactive = AccessibleTreeSnapshot.IsInteractiveRole(role);
 			bool timeText = role == 41 || role == 42;
-			if (interactive || timeText)
+			long state = 0;
+			try { state = Convert.ToInt64(node.get_accState(childId)); } catch { }
+			string action = "";
+			try { action = node.get_accDefaultAction(childId) ?? ""; } catch { }
+			if (interactive || timeText || role == 16 || !string.IsNullOrWhiteSpace(action))
 			{
 				string name = "";
 				string description = "";
 				Rectangle bounds = Rectangle.Empty;
 				try { name = node.get_accName(childId) ?? ""; } catch { }
-				if (interactive)
+				if (interactive || role == 16)
 				{
 					try { description = node.get_accDescription(childId) ?? ""; }
 					catch { }
@@ -102,11 +173,15 @@ internal static class QQMusicAccessibility
 				catch { }
 				if (bounds.Width > 0 && bounds.Height > 0)
 				{
-					nodes.Add(new AccessibleNodeSnapshot(name, description, "", role,
-						interactive && IsHidden(node, childId), depth, bounds));
+					nodes.Add(new AccessibleNodeSnapshot(name, description, action, role,
+						(state & StateInvisible) != 0, depth, bounds, (state & 1) != 0, (state & 64) != 0));
 				}
 			}
-			if (child != null) CaptureNodes(child, depth + 1, ref visited, nodes);
+			// Inactive QQ pages keep visible-looking descendants. Do not publish
+			// them through an invisible ancestor. Offscreen alone is expected while
+			// the source is parked; the owning surface bounds perform clipping.
+			if (child != null && (state & StateInvisible) == 0)
+				CaptureNodes(child, depth + 1, ref visited, nodes);
 		}
 	}
 

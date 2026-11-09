@@ -85,7 +85,7 @@ internal readonly struct AccessibleTimeLabel
 internal readonly struct AccessibleNodeSnapshot
 {
 	public AccessibleNodeSnapshot(string name, string description, string action,
-		int role, bool hidden, int depth, Rectangle bounds)
+		int role, bool hidden, int depth, Rectangle bounds, bool unavailable = false, bool readOnly = false)
 	{
 		Name = name ?? "";
 		Description = description ?? "";
@@ -94,12 +94,16 @@ internal readonly struct AccessibleNodeSnapshot
 		Hidden = hidden;
 		Depth = depth;
 		Bounds = bounds;
+		Unavailable = unavailable;
+		ReadOnly = readOnly;
 	}
 
 	public string Name { get; }
 	public string Description { get; }
 	public string Action { get; }
 	public int Role { get; }
+	public bool Unavailable { get; }
+	public bool ReadOnly { get; }
 	public bool Hidden { get; }
 	public int Depth { get; }
 	public Rectangle Bounds { get; }
@@ -131,10 +135,18 @@ internal sealed class PopupLauncherMap
 
 internal sealed class AccessibleTreeSnapshot
 {
-	private static readonly HashSet<int> InteractiveRoles = new HashSet<int>
+	internal static bool IsInteractiveRole(int role)
 	{
-		12, 30, 43, 44, 45, 46, 47, 51
-	};
+		return role == 12 || role == 29 || role == 30 || role == 34 || role == 36 ||
+			role == 37 || role == 42 || role == 43 || role == 44 || role == 45 ||
+			role == 46 || role == 47 || role == 51;
+	}
+	private static bool IsInteractive(AccessibleNodeSnapshot node)
+	{
+		return !node.Unavailable && (IsInteractiveRole(node.Role) ||
+			!string.IsNullOrWhiteSpace(node.Action) || node.Role == 16 &&
+			(!string.IsNullOrWhiteSpace(node.Name) || !string.IsNullOrWhiteSpace(node.Description)));
+	}
 
 	private readonly AccessibleNodeSnapshot[] nodes;
 
@@ -187,8 +199,7 @@ internal sealed class AccessibleTreeSnapshot
 		{
 			AccessibleNodeSnapshot node = nodes[index];
 			if (!includeHidden && node.Hidden) continue;
-			if (!InteractiveRoles.Contains(node.Role) &&
-				string.IsNullOrWhiteSpace(node.Action)) continue;
+			if (!IsInteractive(node) || HasVisibleReplacement(index)) continue;
 			Rectangle item = Rectangle.Intersect(searchArea, node.Bounds);
 			long itemArea = (long)item.Width * item.Height;
 			if (item.Width > 1 && item.Height > 1 &&
@@ -362,8 +373,7 @@ internal sealed class AccessibleTreeSnapshot
 		for (int index = 0; index < nodes.Length; index++)
 		{
 			AccessibleNodeSnapshot node = nodes[index];
-			if ((!InteractiveRoles.Contains(node.Role) &&
-				string.IsNullOrWhiteSpace(node.Action)) ||
+			if (!IsInteractive(node) || node.Hidden || HasVisibleReplacement(index) ||
 				!node.Bounds.Contains(point)) continue;
 			long area = (long)node.Bounds.Width * node.Bounds.Height;
 			if (!found || node.Depth > target.Depth ||

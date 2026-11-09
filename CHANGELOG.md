@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### 新增与改进
+
+- 将桌面交互扩展到 QQ 音乐整窗内暴露的导航容器、列表项、链接和编辑框；点击与调用保留同一份控件快照，页面切换后主动刷新。
+- 深层控件扫描增加节点预算，过滤不可见祖先下的旧页面和禁用控件。可编辑控件支持中文输入法和 Enter 提交，写入前重新核对控件身份；输入内容不进入操作日志。
+- 普通页面弹窗仅在窗口归属和标题与触发控件一致时接入已有弹窗生命周期；不推测未知窗口。
+- 控制面板增加任务栏亚克力开关、透明度、底边延伸及采样深度。底边延伸复用捕获纹理，上方画面比例与输入映射保持不变。
+- 增加中性亚克力、暖色炫彩、冷色炫彩和全色炫彩配色；炫彩以两分钟为周期变化，资源管理器主题色区域与任务栏使用同一主题色。原有顶部、侧栏、文件区开关保持独立。
+
+### 验证边界
+
+- 控件覆盖取决于 QQ 音乐实际暴露的无障碍信息；未暴露的自绘控件、无法证实归属的弹窗不会被猜测点击。搜索提交依赖控件支持 MSAA 值写入。
+- 任务栏扩展针对已有的主屏幕壁纸区域；亚克力依赖 Windows 11 的 XAML 任务栏。新任务栏效果默认关闭，可在控制面板启用。
+- 本轮不处理此前报告的整体退出问题。
+
+### English
+
+- Broaden semantic routing to exposed application navigation, list, link and edit controls; preserve hit snapshots and exclude inactive-page descendants.
+- Add verified text editing and semantically identified owned dialogs without focusing the parked source.
+- Add opt-in taskbar acrylic and GPU bottom-edge extension, plus shared neutral/warm/cool/full-spectrum accent palettes. Primary-monitor rendering and existing Explorer region switches remain in place.
+- Coverage remains bounded by provider-exposed controls and verified popup ownership; this is not a claim of exhaustive QQ Music compatibility.
+
 ## 1.3.0 - 2026-11-09
 
 本版汇总自 v1.2.1 以来的改动；此前 1.2.2–1.2.6 为开发候选版本，未单独发布。

@@ -57,6 +57,11 @@ internal static class Program
         ProcessIdentityRegression.Register(Run);
         ControlPanelRegression.Register(Run);
         OperationLogRegression.Register(Run);
+        SoftwareSpaceRegression.Register(Run);
+        Run("software space list items support native double clicks", SemanticDoubleClick);
+        Run("generic navigation retains its hit snapshot", () => QueuedNavigation(0));
+        Run("generic navigation cancels after another click", () => QueuedNavigation(1));
+        Run("generic navigation cancels after source movement", () => QueuedNavigation(2));
         Run("hook exceptions release input and unwind callback state", HookExceptionReleasesInput);
         Run("desktop icon guard never sends synchronous queries on its caller", DesktopIconGuardDoesNotSend);
         Run("desktop icon cache preserves icons and releases known clear space", DesktopIconCacheRoutesKnownPoints);
@@ -591,6 +596,46 @@ internal static class Program
         }
     }
 
+    private static void SemanticDoubleClick()
+    {
+        using (var source = new TestSourceWindow())
+        {
+            var controller = CreateController(source);
+            var target = new AccessibleNodeSnapshot("Row", "", "", 34, false, 9,
+                new Rectangle(source.Bounds.Left + 30, source.Bounds.Top + 130, 100, 30));
+            Assert((bool)Invoke(controller, "PostSemanticClick", target), "First list click failed.");
+            SetField(controller, "desktopClickSequence", 1L);
+            Assert((bool)Invoke(controller, "PostSemanticClick", target), "Second list click failed.");
+            Application.DoEvents();
+            Assert(source.Clicks.Count == 1 && source.DoubleClicks == 1, "Two list clicks were not delivered as native click/double-click.");
+        }
+    }
+
+    private static void QueuedNavigation(int change)
+    {
+        using (var source = new TestSourceWindow())
+        using (var dispatchWindow = (Form)Activator.CreateInstance(
+            typeof(WallpaperContext).GetNestedType("HiddenWindow", BindingFlags.NonPublic),
+            new object[] { (Action)(() => { }) }))
+        {
+            IntPtr handle = dispatchWindow.Handle;
+            var controller = CreateController(source);
+            SetField(controller, "window", dispatchWindow);
+            Rectangle active = new Rectangle(source.Bounds.Left + 20, source.Bounds.Top + 130, 160, 40);
+            var snapshot = new AccessibleTreeSnapshot(new[] { new AccessibleNodeSnapshot("推荐", "", "", 16, false, 20, active) });
+            SetField(controller, "qqAccessibilitySnapshot", snapshot);
+            Invoke(controller, "QueueAccessiblePointAction", LocalCenter(source, active), new Rectangle(Point.Empty, source.Bounds.Size));
+            SetField(controller, "qqAccessibilitySnapshot", new AccessibleTreeSnapshot(new AccessibleNodeSnapshot[0]));
+            if (change == 1) SetField(controller, "desktopClickSequence", 1L);
+            if (change == 2) Native.SetWindowPos(source.Handle, IntPtr.Zero, source.Bounds.Left - 10,
+                source.Bounds.Top, source.Bounds.Width, source.Bounds.Height, 0x14u);
+            Application.DoEvents();
+            Assert(change == 0 ? source.Clicks.Count == 1 && source.Clicks[0] == LocalCenter(source, active) : source.Clicks.Count == 0,
+                "Generic navigation lost its semantic hit identity or invoked after cancellation.");
+            SetField(controller, "exiting", true);
+        }
+    }
+
     private static void DifferentTransientToggle(string description)
     {
         using (var source = new TestSourceWindow())
@@ -735,6 +780,7 @@ internal static class Program
     private sealed class TestSourceWindow : NativeWindow, IDisposable
     {
         internal int IconQueries;
+        internal int DoubleClicks;
         internal readonly List<Point> Wheels = new List<Point>();
         internal short WheelDelta;
         internal readonly List<Point> Clicks = new List<Point>();
@@ -775,6 +821,7 @@ internal static class Program
 
         protected override void WndProc(ref Message message)
         {
+            if (message.Msg == 0x203) { DoubleClicks++; message.Result = IntPtr.Zero; return; }
             if (message.Msg == 0x20A)
             {
                 long packed = message.LParam.ToInt64();

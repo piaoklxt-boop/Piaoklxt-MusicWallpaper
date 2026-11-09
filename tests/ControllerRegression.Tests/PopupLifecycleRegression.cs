@@ -30,6 +30,7 @@ internal static class PopupLifecycleRegression
         RunCase(run, "source maintenance preserves an unowned popup",
             () => PopupSurvivesParking(false));
         RunCase(run, "new native popup is discovered without activation", NewlyVisiblePopupIsDiscovered);
+        RunCase(run, "software space popup requires both semantic title and source ownership", SemanticApplicationPopup);
         RunCase(run, "untitled accompaniment is identified from its owned panel controls", () => UntitledAccompaniment(false, "Accompaniment"));
         RunCase(run, "quality restores the same reused untitled accompaniment panel", () => UntitledAccompaniment(true, "Audio quality"));
         RunCase(run, "unowned untitled player style is recognized from its controls", () => UntitledPlayerStyle(true));
@@ -100,6 +101,31 @@ internal static class PopupLifecycleRegression
             coordinator.PruneQQPopupSurfaces();
             Assert(coordinator.Surfaces[0].Bounds == Rectangle.Intersect(source.Bounds, popup.Bounds), "Published input bounds did not follow the window.");
             Assert(!coordinator.Surfaces[0].Bounds.Contains(old.Left + 1, old.Top + 1), "Old popup pixels still own input.");
+        }
+    }
+
+    private static void SemanticApplicationPopup()
+    {
+        using (var source = new FixtureWindow(IntPtr.Zero, false))
+        using (var matching = new FixtureWindow(source.Handle, true, "TXGuiFoundation", "Settings"))
+        using (var unrelated = new FixtureWindow(source.Handle, true, "TXGuiFoundation", "Other"))
+        using (var unowned = new FixtureWindow(IntPtr.Zero, true, "TXGuiFoundation", "Settings"))
+        {
+            var controller = CreateParkedController(source);
+            var coordinator = Coordinator(controller);
+            var before = coordinator.GetVisibleQQTopLevelWindows();
+            var request = coordinator.BeginQQPopupPresentation(0);
+            request.ExpectedPopupLabel = "Settings";
+            Native.ShowWindow(matching.Handle, 4);
+            Native.ShowWindow(unrelated.Handle, 4);
+            Native.ShowWindow(unowned.Handle, 4);
+            Assert(AccessoryWindowCoordinator.IsSemanticOwnedPopup(matching.Handle, source.Handle, "Settings"), "Matching owned popup was rejected.");
+            Assert(!AccessoryWindowCoordinator.IsSemanticOwnedPopup(unrelated.Handle, source.Handle, "Settings") &&
+                !AccessoryWindowCoordinator.IsSemanticOwnedPopup(unowned.Handle, source.Handle, "Settings"), "Unproven popup passed semantic ownership.");
+            coordinator.QueuePresentQQPopup(request, before, source.Bounds, "Application control");
+            Pump(500);
+            Assert(Tracks(controller, matching.Handle) && !Tracks(controller, unrelated.Handle) && !Tracks(controller, unowned.Handle),
+                "Generic application popup discovery did not preserve ownership.");
         }
     }
 

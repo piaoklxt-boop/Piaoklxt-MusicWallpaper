@@ -181,6 +181,13 @@ internal static class ControlPanelRegression
             string output = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "control-panel-preview.png");
             using (var bitmap = new Bitmap(form.Width, form.Height))
             { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(output); }
+            var tabs = Find<TabControl>(form, "SettingsTabs");
+            for (int i = 1; i < tabs.TabCount; i++)
+            {
+                tabs.SelectedIndex = i; Application.DoEvents(); form.PerformLayout();
+                using (var bitmap = new Bitmap(form.Width, form.Height))
+                { form.DrawToBitmap(bitmap, new Rectangle(Point.Empty, bitmap.Size)); bitmap.Save(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "control-panel-tab-" + i + ".png")); }
+            }
             Assert(Find<ComboBox>(form, "HeaderStyle").Items.Count == 3, "Header modes missing.");
         }
     }

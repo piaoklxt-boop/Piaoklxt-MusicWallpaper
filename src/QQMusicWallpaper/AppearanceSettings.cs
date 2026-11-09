@@ -12,6 +12,7 @@ internal sealed class ThemePreferences
     public bool MatchBrightness;
     public bool ColorizeShell = true;
     public bool DarkApps = true;
+    public ThemePalette Palette;
 
     public static ThemePreferences Load(string path)
     {
@@ -22,6 +23,7 @@ internal sealed class ThemePreferences
         value.MatchBrightness = AppearanceIni.ReadInt(text, "MatchBrightness", 0, 0, 1) == 1;
         value.ColorizeShell = AppearanceIni.ReadInt(text, "ColorizeShell", 1, 0, 1) == 1;
         value.DarkApps = AppearanceIni.ReadInt(text, "DarkApps", 1, 0, 1) == 1;
+        value.Palette = (ThemePalette)AppearanceIni.ReadInt(text, "Palette", 0, 0, 4);
         return value;
     }
 }
@@ -37,6 +39,10 @@ internal sealed class ExplorerAppearanceSettings
     public bool FileAreaAcrylic = true;
     public ExplorerHeaderStyle HeaderStyle;
     public int HeaderTint = 38;
+    public bool TaskbarAcrylic;
+    public int TaskbarTransparency = 65;
+    public bool ExtendBottom;
+    public int EdgeDepth = 1;
 
     public static string SettingsPath { get { return Path.Combine(AppPaths.DataDirectory, "explorer-appearance.ini"); } }
 
@@ -52,6 +58,10 @@ internal sealed class ExplorerAppearanceSettings
         value.FileAreaAcrylic = AppearanceIni.ReadInt(text, "FileAreaAcrylic", 1, 0, 1) == 1;
         value.HeaderStyle = (ExplorerHeaderStyle)AppearanceIni.ReadInt(text, "HeaderStyle", 0, 0, 2);
         value.HeaderTint = AppearanceIni.ReadInt(text, "HeaderTint", 38, 0, 100);
+        value.TaskbarAcrylic = AppearanceIni.ReadInt(text, "TaskbarAcrylic", 0, 0, 1) == 1;
+        value.TaskbarTransparency = AppearanceIni.ReadInt(text, "TaskbarTransparency", 65, 0, 100);
+        value.ExtendBottom = AppearanceIni.ReadInt(text, "ExtendBottom", 0, 0, 1) == 1;
+        value.EdgeDepth = AppearanceIni.ReadInt(text, "EdgeDepth", 1, 1, 100);
         return value;
     }
 
@@ -60,7 +70,9 @@ internal sealed class ExplorerAppearanceSettings
         string text = "Enabled=" + (Enabled ? 1 : 0) + "\nTransparency=" + Transparency +
             "\nTintGray=" + TintGray + "\nSidebarAcrylic=" + (SidebarAcrylic ? 1 : 0) +
             "\nFileAreaAcrylic=" + (FileAreaAcrylic ? 1 : 0) +
-            "\nHeaderStyle=" + (int)HeaderStyle + "\nHeaderTint=" + HeaderTint + "\n";
+            "\nHeaderStyle=" + (int)HeaderStyle + "\nHeaderTint=" + HeaderTint +
+            "\nTaskbarAcrylic=" + (TaskbarAcrylic ? 1 : 0) + "\nTaskbarTransparency=" + TaskbarTransparency +
+            "\nExtendBottom=" + (ExtendBottom ? 1 : 0) + "\nEdgeDepth=" + EdgeDepth + "\n";
         AppearanceIni.WriteAtomic(path, text, Encoding.UTF8);
     }
 
@@ -68,7 +80,20 @@ internal sealed class ExplorerAppearanceSettings
     {
         return other != null && Enabled == other.Enabled && Transparency == other.Transparency &&
             TintGray == other.TintGray && SidebarAcrylic == other.SidebarAcrylic && FileAreaAcrylic == other.FileAreaAcrylic &&
-            HeaderStyle == other.HeaderStyle && HeaderTint == other.HeaderTint;
+            HeaderStyle == other.HeaderStyle && HeaderTint == other.HeaderTint &&
+            TaskbarAcrylic == other.TaskbarAcrylic && TaskbarTransparency == other.TaskbarTransparency &&
+            ExtendBottom == other.ExtendBottom && EdgeDepth == other.EdgeDepth;
+    }
+
+    internal string CreateTaskbarConfiguration(string seed)
+    {
+        string text = AppearanceIni.Set(seed, "Disabled", TaskbarAcrylic ? "0" : "1");
+        text = AppearanceIni.Set(text, "SettingsChangeTime", ((DateTime.UtcNow.Ticks - new DateTime(1970, 1, 1).Ticks) / TimeSpan.TicksPerSecond).ToString(CultureInfo.InvariantCulture));
+        text = Regex.Replace(text, @"(?m)^controlStyles\[\d+\]\.[^\r\n]*(?:\r?\n|$)", "");
+        double opacity = (100 - Math.Max(0, Math.Min(100, TaskbarTransparency))) / 100.0;
+        return text.TrimEnd() + "\ncontrolStyles[0].target=Taskbar.TaskbarFrame > Grid#RootGrid > Taskbar.TaskbarBackground > Grid > Rectangle#BackgroundFill\n" +
+            "controlStyles[0].styles[0]=Fill:=<WindhawkBlur BlurAmount=\"24\" TintColor=\"{ThemeResource SystemAccentColor}\" TintOpacity=\"" +
+            opacity.ToString("0.##", CultureInfo.InvariantCulture) + "\"/>\n";
     }
 
     internal string CreateRuntimeConfiguration(string seed)
