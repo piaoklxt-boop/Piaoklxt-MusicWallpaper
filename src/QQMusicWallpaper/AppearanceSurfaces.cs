@@ -71,7 +71,8 @@ internal sealed class AppearanceSurfaces : IDisposable
     private void Refresh()
     {
         var current = state;
-        if (current == null || !current.Active || (current.Accent.IsEmpty && !ThemePaletteColors.IsFlowing(current.Theme.Palette)))
+        if (current == null || !current.Active || (current.Accent.IsEmpty &&
+            (ThemePaletteColors.UsesPlaybackColor(current.Theme.Palette) || !ThemePaletteColors.IsFlowing(current.Theme.Palette))))
         { Clear(); return; }
         if (current != previous) { nextDiscovery = 0; previous = current; }
         double seconds = clock.Elapsed.TotalSeconds;
@@ -85,7 +86,7 @@ internal sealed class AppearanceSurfaces : IDisposable
         if (flowing && surfaces.Count > 0)
         {
             Bitmap old = field;
-            field = ThemePaletteColors.CreateField(current.Theme.Palette, seconds);
+            field = ThemePaletteColors.CreateField(current.Theme.Palette, seconds, current.Accent);
             foreach (var surface in surfaces.Values) surface.Field = field;
             if (old != null) old.Dispose();
         }
@@ -120,7 +121,7 @@ internal sealed class AppearanceSurfaces : IDisposable
             {
                 using (Region region = SurfaceWindows.ShellRegion(hwnd, bounds, kind, current.Explorer))
                 {
-                    strength = kind == SurfaceKind.Taskbar ? (100 - current.Explorer.TaskbarTransparency) : 30;
+                    strength = kind == SurfaceKind.Taskbar ? (100 - current.Explorer.TaskbarTransparency) : 42;
                     surface.Present(bounds, region, Math.Min(45, strength), field, current.Accent);
                 }
             }

@@ -29,7 +29,7 @@ internal sealed class ThemePreferences
         value.MatchBrightness = AppearanceIni.ReadInt(text, "MatchBrightness", 0, 0, 1) == 1;
         value.ColorizeShell = AppearanceIni.ReadInt(text, "ColorizeShell", 1, 0, 1) == 1;
         value.DarkApps = AppearanceIni.ReadInt(text, "DarkApps", 1, 0, 1) == 1;
-        value.Palette = (ThemePalette)AppearanceIni.ReadInt(text, "Palette", 0, 0, 4);
+        value.Palette = (ThemePalette)AppearanceIni.ReadInt(text, "Palette", 0, 0, 5);
         value.Word = AppearanceIni.ReadInt(text, "Word", 1, 0, 1) == 1;
         value.Excel = AppearanceIni.ReadInt(text, "Excel", 1, 0, 1) == 1;
         value.PowerPoint = AppearanceIni.ReadInt(text, "PowerPoint", 1, 0, 1) == 1;

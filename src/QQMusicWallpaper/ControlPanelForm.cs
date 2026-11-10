@@ -6,9 +6,9 @@ namespace QQMusicWallpaper;
 
 internal sealed class ControlPanelForm : Form
 {
-    private readonly CheckBox follow = Check("FollowArtwork", "启用统一主题色");
-    private readonly CheckBox shell = Check("ColorizeShell", "任务栏和开始菜单跟随主题色");
-    private readonly CheckBox brightness = Check("MatchBrightness", "根据封面亮度自动切换应用明暗");
+    private readonly CheckBox follow = Check("FollowArtwork", "启用主题配色与流动效果");
+    private readonly CheckBox shell = Check("ColorizeShell", "任务栏和开始菜单使用系统强调色");
+    private readonly CheckBox brightness = Check("MatchBrightness", "根据音乐画面亮度自动切换应用明暗");
     private readonly CheckBox dark = Check("DarkApps", "应用默认使用深色模式");
     private readonly CheckBox word = Check("Word", "Word");
     private readonly CheckBox excel = Check("Excel", "Excel");
@@ -32,6 +32,8 @@ internal sealed class ControlPanelForm : Form
     private readonly Button defaults = new Button { Name = "Defaults", Text = "恢复默认值", AutoSize = true, MinimumSize = new Size(104, 32) };
     private readonly Label status = new Label { Name = "Status", AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(0, 8, 0, 8) };
     private readonly TabControl tabs = new TabControl { Dock = DockStyle.Fill, Name = "SettingsTabs" };
+    private readonly ThemePreview preview = new ThemePreview();
+    private readonly Label paletteHint = Hint("");
     private bool loading;
     private bool applying;
 
@@ -44,81 +46,107 @@ internal sealed class ControlPanelForm : Form
         Font = new Font("Microsoft YaHei UI", 9F);
         AutoScaleMode = AutoScaleMode.Dpi;
         AutoScaleDimensions = new SizeF(96, 96);
-        ClientSize = new Size(640, 570);
-        MinimumSize = new Size(570, 550);
+        ClientSize = new Size(760, 660);
+        MinimumSize = new Size(660, 570);
         StartPosition = FormStartPosition.CenterScreen;
         ShowIcon = false;
         FormClosed += delegate { OperationLog.Record(OperationKind.ControlPanel, "closed"); };
-        BackColor = SystemColors.Window;
+        BackColor = Color.FromArgb(244, 247, 248);
+        foreach (var combo in new[] { header, palette })
+        {
+            combo.Margin = new Padding(0, 4, 0, 12);
+            combo.MinimumSize = new Size(0, combo.PreferredHeight);
+            combo.FontChanged += delegate { combo.MinimumSize = new Size(0, combo.PreferredHeight); };
+        }
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 4, Padding = new Padding(22, 16, 22, 16) };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var title = new Label { Text = "桌面外观", AutoSize = true, Font = new Font(Font.FontFamily, 18, FontStyle.Bold), ForeColor = Color.FromArgb(0, 105, 100), Margin = new Padding(0, 0, 0, 16) };
+        var title = new Label { Text = "外观与配色", AutoSize = true, Font = new Font(Font.FontFamily, 18, FontStyle.Bold), ForeColor = Color.FromArgb(0, 105, 100), Margin = new Padding(0, 0, 0, 16) };
         root.Controls.Add(title, 0, 0);
         root.Controls.Add(tabs, 0, 1);
         root.Controls.Add(status, 0, 2);
 
         var explorerPage = Page("文件资源管理器");
-        var themePage = Page("统一主题");
+        var themePage = Page("主题配色");
         var taskbarPage = Page("任务栏");
         var officePage = Page("Microsoft Office");
+        var wallpaperPage = Page("壁纸画面");
+        tabs.TabPages.Add(themePage.Item1);
         tabs.TabPages.Add(explorerPage.Item1);
         tabs.TabPages.Add(taskbarPage.Item1);
-        tabs.TabPages.Add(themePage.Item1);
         tabs.TabPages.Add(officePage.Item1);
+        tabs.TabPages.Add(wallpaperPage.Item1);
         var o = officePage.Item2;
-        Add(o, Hint("跟随统一主题；分别控制应用和渲染区域。"));
-        Add(o, word); Add(o, excel); Add(o, powerpoint);
+        Add(o, Hint("使用“主题配色”页选择的颜色；在这里决定应用与区域。"));
+        Add(o, Section("启用应用"));
+        var officeApps = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, Margin = new Padding(0, 0, 0, 8) };
+        foreach (var app in new[] { word, excel, powerpoint }) { app.Margin = new Padding(0, 5, 28, 5); officeApps.Controls.Add(app); }
+        Add(o, officeApps);
+        Add(o, Section("渲染范围"));
         Add(o, officeInterface); Add(o, officeContent);
+        Add(o, Section("显示强度"));
         Add(o, SliderRow("颜色强度", officeTint, "%"));
-        Add(o, Hint("只改变屏幕显示，不修改文件格式、打印或导出颜色。关闭统一主题或暂停壁纸后恢复原显示。区域无法识别时暂不渲染，避免影响已关闭的区域。"));
+        Add(o, Hint("只改变显示，不改变文件、打印或导出颜色。区域无法识别时暂不渲染。"));
         var e = explorerPage.Item2;
         Add(e, explorerEnabled);
-        Add(e, Hint("文件区与预览区共用亚克力；顶部样式作用于地址栏和命令栏。"));
-        Add(e, SliderRow("亚克力透明度", transparency, "%"));
-        Add(e, SliderRow("底色亮度", gray, ""));
+        Add(e, Section("亚克力区域"));
         Add(e, files);
-        Add(e, Hint("控制文件列表及其空白区域；关闭后使用不透明背景。"));
         Add(e, sidebar);
-        Add(e, Hint("控制左侧“桌面、下载、文档”一列；关闭后与顶部同色且不透明。"));
+        Add(e, Hint("分别控制文件列表与左侧导航；关闭的区域使用不透明底色。"));
+        Add(e, SliderRow("亚克力透明度", transparency, "%"));
+        Add(e, SliderRow("亚克力底色亮度", gray, ""));
+        Add(e, Section("地址栏与命令栏"));
         header.Items.AddRange(new object[] { "主题色（不透明）", "深灰底色（不透明）", "跟随文件区亚克力" });
-        Add(e, new Label { Text = "顶部内容区渲染", AutoSize = true, Margin = new Padding(0, 12, 0, 4) });
         Add(e, header);
         Add(e, SliderRow("顶部主题色强度", headerTint, "%"));
         var t = themePage.Item2;
         Add(t, follow);
-        palette.Items.AddRange(new object[] { "单色 · 跟随播放／暂停键", "亚克力 · 中性", "暖色炫彩", "冷色炫彩", "全色炫彩" });
+        Add(t, Hint("控制动态配色。各应用的渲染范围与亚克力材质在对应页面设置。"));
+        palette.Items.AddRange(new object[] { "单色 · 播放／暂停键", "中性灰蓝", "暖色炫彩", "冷色炫彩", "全色炫彩", "渐变单色 · 播放／暂停键" });
         Add(t, palette);
-        Add(t, Hint("炫彩在同一区域内让多种颜色持续游动、交融。资源管理器、任务栏和 Office 共用配色；系统强调色保持稳定。"));
-        var b = taskbarPage.Item2;
-        Add(b, taskbar);
-        Add(b, SliderRow("亚克力透明度", taskbarTransparency, "%"));
-        Add(b, extendBottom);
-        Add(b, SliderRow("底边采样深度", edgeDepth, "%"));
-        Add(b, Hint("仅延伸画面最下方的一条色带，不改变上方画面比例或点击位置。较小采样深度更接近底边纯色；开启任务栏亚克力可看到模糊后的延伸。"));
-        Add(t, Hint("单色主题取当前播放／暂停键的颜色。暂停动态壁纸后恢复原系统主题色。"));
-        Add(t, shell);
+        Add(t, preview);
+        Add(t, paletteHint);
+        Add(t, Section("系统明暗"));
         Add(t, brightness);
         Add(t, dark);
-        Add(t, Hint("自动明暗优先于默认深色。这里的明暗设置也会影响其他支持系统主题的应用。"));
+        Add(t, Hint("自动明暗优先于默认深色；暂停壁纸后恢复原系统主题。"));
+        var b = taskbarPage.Item2;
+        Add(b, Section("亚克力材质"));
+        Add(b, taskbar);
+        Add(b, SliderRow("任务栏透明度", taskbarTransparency, "%"));
+        Add(b, Hint("流动配色跟随主题选择；透明度越高，颜色越淡。"));
+        Add(b, Section("Windows 系统强调色"));
+        Add(b, shell);
+        Add(b, Hint("决定系统是否使用主题代表色，与上方亚克力材质开关独立。"));
+        var w = wallpaperPage.Item2;
+        Add(w, Section("底边延伸"));
+        Add(w, extendBottom);
+        Add(w, SliderRow("底边采样深度", edgeDepth, "%"));
+        Add(w, Hint("将最下方色带延伸到任务栏下方，保留上方画面的比例与点击位置。较小的采样深度更接近底边纯色；透过任务栏亚克力可以看到延伸画面。"));
 
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, WrapContents = false };
+        var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 4, RowCount = 1, Margin = new Padding(0, 8, 0, 0) };
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var close = new Button { Text = "关闭", AutoSize = true, MinimumSize = new Size(88, 32) };
         close.Click += delegate { Close(); };
         defaults.Click += delegate { LoadValues(new ThemePreferences(), new ExplorerAppearanceSettings()); MarkDirty(); };
-        buttons.Controls.Add(close);
-        buttons.Controls.Add(apply);
-        buttons.Controls.Add(defaults);
+        apply.BackColor = Color.FromArgb(0, 105, 100); apply.ForeColor = Color.White; apply.FlatStyle = FlatStyle.Flat;
+        apply.FlatAppearance.BorderSize = 0;
+        buttons.Controls.Add(defaults, 0, 0);
+        buttons.Controls.Add(apply, 2, 0);
+        buttons.Controls.Add(close, 3, 0);
         root.Controls.Add(buttons, 0, 3);
         Controls.Add(root);
         AcceptButton = apply;
         CancelButton = close;
         foreach (var c in new[] { follow, shell, brightness, dark, explorerEnabled, sidebar, files, taskbar, extendBottom, word, excel, powerpoint, officeInterface, officeContent }) c.CheckedChanged += delegate { MarkDirty(); };
         foreach (var c in new[] { transparency, gray, headerTint, taskbarTransparency, edgeDepth, officeTint }) c.ValueChanged += delegate { MarkDirty(); };
-        palette.SelectedIndexChanged += delegate { MarkDirty(); };
+        palette.SelectedIndexChanged += delegate { UpdatePreview(); MarkDirty(); };
         header.SelectedIndexChanged += delegate { MarkDirty(); };
         apply.Click += delegate { Apply(); };
         LoadValues(theme, explorer);
@@ -128,13 +156,19 @@ internal sealed class ControlPanelForm : Form
 
     private static CheckBox Check(string name, string text) { return new CheckBox { Name = name, Text = text, AutoSize = true, Margin = new Padding(0, 8, 0, 4) }; }
     private static TrackBar Slider(string name, int minimum, int maximum) { return new TrackBar { Name = name, Minimum = minimum, Maximum = maximum, TickStyle = TickStyle.None, Dock = DockStyle.Fill, AutoSize = false, Height = 30, SmallChange = 1, LargeChange = 5 }; }
-    private static Label Hint(string text) { return new Label { Text = text, AutoSize = true, ForeColor = SystemColors.GrayText, MaximumSize = new Size(520, 0), Margin = new Padding(0, 0, 0, 8) }; }
+    private static Label Hint(string text) { return new Label { Text = text, AutoSize = true, ForeColor = Color.FromArgb(90, 109, 114), MaximumSize = new Size(600, 0), Margin = new Padding(0, 4, 0, 10) }; }
+    private static Label Section(string text) { return new Label { Text = text, AutoSize = true, ForeColor = Color.FromArgb(0, 105, 100), Margin = new Padding(0, 16, 0, 5) }; }
     private static Tuple<TabPage, TableLayoutPanel> Page(string title)
     {
-        var page = new TabPage(title) { UseVisualStyleBackColor = true, AutoScroll = true, Padding = new Padding(16, 8, 16, 8) };
-        var table = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, GrowStyle = TableLayoutPanelGrowStyle.AddRows };
+        var page = new TabPage(title) { BackColor = Color.White, AutoScroll = true, Padding = new Padding(20, 12, 20, 12) };
+        var table = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, ColumnCount = 1, GrowStyle = TableLayoutPanelGrowStyle.AddRows, Margin = Padding.Empty };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         page.Controls.Add(table);
+        table.SizeChanged += delegate
+        {
+            foreach (Control child in table.Controls)
+                if (child is Label) child.MaximumSize = new Size(Math.Max(180, table.ClientSize.Width - child.Margin.Horizontal), 0);
+        };
         return Tuple.Create(page, table);
     }
     private static void Add(TableLayoutPanel panel, Control control)
@@ -147,10 +181,10 @@ internal sealed class ControlPanelForm : Form
     private static Control SliderRow(string text, TrackBar slider, string suffix)
     {
         var row = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, Dock = DockStyle.Top, Margin = new Padding(0, 6, 0, 2) };
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 170));
         row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 50));
-        row.Controls.Add(new Label { Text = text, AutoSize = true, Anchor = AnchorStyles.Left }, 0, 0);
+        row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
+        row.Controls.Add(new Label { Text = text, AutoSize = true, MaximumSize = new Size(160, 0), Anchor = AnchorStyles.Left }, 0, 0);
         row.Controls.Add(slider, 1, 0);
         var value = new Label { AutoSize = true, Anchor = AnchorStyles.Right, Text = slider.Value + suffix };
         slider.ValueChanged += delegate { value.Text = slider.Value + suffix; };
@@ -168,6 +202,7 @@ internal sealed class ControlPanelForm : Form
         transparency.Value = explorer.Transparency; gray.Value = explorer.TintGray;
         header.SelectedIndex = (int)explorer.HeaderStyle; headerTint.Value = explorer.HeaderTint;
         palette.SelectedIndex = (int)theme.Palette;
+        UpdatePreview();
         word.Checked = theme.Word; excel.Checked = theme.Excel; powerpoint.Checked = theme.PowerPoint;
         officeInterface.Checked = theme.OfficeInterface; officeContent.Checked = theme.OfficeContent;
         officeTint.Value = theme.OfficeTint;
@@ -185,6 +220,14 @@ internal sealed class ControlPanelForm : Form
         dark.Enabled = follow.Checked && !brightness.Checked;
         transparency.Enabled = gray.Enabled = sidebar.Enabled = files.Enabled = header.Enabled = explorerEnabled.Checked;
         headerTint.Enabled = explorerEnabled.Checked && header.SelectedIndex == 0;
+    }
+    private void UpdatePreview()
+    {
+        preview.Palette = (ThemePalette)Math.Max(0, palette.SelectedIndex);
+        preview.Invalidate();
+        paletteHint.Text = palette.SelectedIndex == 5 ? "同一基色从深色到浅色流动，亮度范围 30%–100%；基色取播放／暂停键。" :
+            palette.SelectedIndex >= 2 ? "多种高饱和颜色同时游动、交融，伴随明显的深浅变化。" :
+            palette.SelectedIndex == 0 ? "使用当前播放／暂停键颜色；预览随最近一次取色更新。" : "固定的灰蓝配色；亚克力透明度在各应用页设置。";
     }
     private void MarkDirty()
     {

@@ -62,6 +62,7 @@ internal static class Program
         OperationLogRegression.Register(Run);
         SoftwareSpaceRegression.Register(Run);
         AppearanceSurfacesRegression.Register(Run);
+        VividThemeRegression.Register(Run);
         Run("software space list items support native double clicks", SemanticDoubleClick);
         Run("generic navigation retains its hit snapshot", () => QueuedNavigation(0));
         Run("generic navigation cancels after another click", () => QueuedNavigation(1));

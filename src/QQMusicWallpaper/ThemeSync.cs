@@ -355,7 +355,7 @@ namespace QQMusicWallpaperThemeSync
                 try
                 {
                     Color color; double brightness;
-                    if (palette == QQMusicWallpaper.ThemePalette.Artwork)
+                    if (QQMusicWallpaper.ThemePaletteColors.UsesPlaybackColor(palette))
                     {
                         if (!Sampler.TrySample(out color, out brightness)) return;
                     }
@@ -479,6 +479,7 @@ namespace QQMusicWallpaperThemeSync
                     lightCount++;
                 }
             meanLight = lightCount == 0 ? 0.5 : lightSum / lightCount;
+            QQMusicWallpaper.PlaybackAccent.RememberColor(result);
             return true;
         }
     }

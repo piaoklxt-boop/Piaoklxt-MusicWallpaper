@@ -14,6 +14,9 @@ internal static class PlaybackAccent
         internal DateTime Captured;
     }
     private static volatile Target target;
+    private static volatile int sampledColor;
+    internal static Color LastSampledColor { get { int value = sampledColor; return value == 0 ? Color.Empty : Color.FromArgb(value); } }
+    internal static void RememberColor(Color value) { sampledColor = value.ToArgb(); }
     private static DateTime nextStandaloneScan;
 
     internal static void RefreshStandalone()

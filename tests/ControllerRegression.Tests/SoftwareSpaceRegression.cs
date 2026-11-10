@@ -60,7 +60,7 @@ internal static class SoftwareSpaceRegression
             File.WriteAllText(path, "EdgeDepth=0\nTaskbarTransparency=500\nPalette=99\n");
             Assert(ExplorerAppearanceSettings.Load(path).EdgeDepth == 1 && ExplorerAppearanceSettings.Load(path).TaskbarTransparency == 100,
                 "Invalid extension settings escaped clamping.");
-            Assert(ThemePreferences.Load(path).Palette == ThemePalette.Spectrum, "Invalid palette escaped clamping.");
+            Assert(ThemePreferences.Load(path).Palette == ThemePalette.MonochromeGradient, "Invalid palette escaped clamping.");
         }
         finally { File.Delete(path); }
     }
