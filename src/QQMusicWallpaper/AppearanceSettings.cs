@@ -13,6 +13,10 @@ internal sealed class ThemePreferences
     public bool ColorizeShell = true;
     public bool DarkApps = true;
     public ThemePalette Palette;
+    public ThemeTone Tone;
+    public bool GeneralApps = true;
+    public int GeneralTint = 22;
+    public bool TaskbarColors = true;
     public bool Word = true;
     public bool Excel = true;
     public bool PowerPoint = true;
@@ -30,6 +34,10 @@ internal sealed class ThemePreferences
         value.ColorizeShell = AppearanceIni.ReadInt(text, "ColorizeShell", 1, 0, 1) == 1;
         value.DarkApps = AppearanceIni.ReadInt(text, "DarkApps", 1, 0, 1) == 1;
         value.Palette = (ThemePalette)AppearanceIni.ReadInt(text, "Palette", 0, 0, 5);
+        value.Tone = (ThemeTone)AppearanceIni.ReadInt(text, "Tone", 0, 0, 2);
+        value.GeneralApps = AppearanceIni.ReadInt(text, "GeneralApps", 1, 0, 1) == 1;
+        value.GeneralTint = AppearanceIni.ReadInt(text, "GeneralTint", 22, 0, 45);
+        value.TaskbarColors = AppearanceIni.ReadInt(text, "TaskbarColors", 1, 0, 1) == 1;
         value.Word = AppearanceIni.ReadInt(text, "Word", 1, 0, 1) == 1;
         value.Excel = AppearanceIni.ReadInt(text, "Excel", 1, 0, 1) == 1;
         value.PowerPoint = AppearanceIni.ReadInt(text, "PowerPoint", 1, 0, 1) == 1;
@@ -45,7 +53,9 @@ internal sealed class ThemePreferences
             "\nColorizeShell=" + (ColorizeShell ? 1 : 0) + "\nDarkApps=" + (DarkApps ? 1 : 0) +
             "\nPalette=" + (int)Palette + "\nWord=" + (Word ? 1 : 0) + "\nExcel=" + (Excel ? 1 : 0) +
             "\nPowerPoint=" + (PowerPoint ? 1 : 0) + "\nOfficeInterface=" + (OfficeInterface ? 1 : 0) +
-            "\nOfficeContent=" + (OfficeContent ? 1 : 0) + "\nOfficeTint=" + Math.Max(0, Math.Min(45, OfficeTint)) + "\n";
+            "\nOfficeContent=" + (OfficeContent ? 1 : 0) + "\nOfficeTint=" + Math.Max(0, Math.Min(45, OfficeTint)) +
+            "\nTone=" + (int)Tone + "\nGeneralApps=" + (GeneralApps ? 1 : 0) + "\nGeneralTint=" + Math.Max(0, Math.Min(45, GeneralTint)) +
+            "\nTaskbarColors=" + (TaskbarColors ? 1 : 0) + "\n";
     }
 
     internal ThemePreferences Copy() { return (ThemePreferences)MemberwiseClone(); }

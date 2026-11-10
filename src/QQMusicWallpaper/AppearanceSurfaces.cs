@@ -88,7 +88,7 @@ internal sealed class AppearanceSurfaces : IDisposable
         if (flowing && surfaces.Count > 0)
         {
             Bitmap old = field;
-            field = ThemePaletteColors.CreateField(current.Theme.Palette, seconds, current.Accent);
+            field = ThemePaletteColors.CreateField(current.Theme.Palette, seconds, current.Accent, current.Theme.Tone);
             foreach (var surface in surfaces.Values) surface.Field = field;
             if (old != null) old.Dispose();
         }
@@ -107,6 +107,7 @@ internal sealed class AppearanceSurfaces : IDisposable
             Rectangle[] content = null;
             var kind = surface.Kind;
             int strength = current.Theme.OfficeTint;
+            Color accent = ThemePaletteColors.ApplyTone(current.Accent, current.Theme.Tone);
             if (kind == SurfaceKind.Word || kind == SurfaceKind.Excel || kind == SurfaceKind.PowerPoint)
             {
                 if (current.Theme.OfficeInterface != current.Theme.OfficeContent)
@@ -118,14 +119,19 @@ internal sealed class AppearanceSurfaces : IDisposable
                     if (content == null || content.Length == 0) { surface.Hide(); continue; }
                 }
                 using (Region region = OfficeRegion(bounds, content, current.Theme.OfficeInterface, current.Theme.OfficeContent))
-                    surface.Present(bounds, region, strength, flowing ? field : null, current.Accent);
+                    surface.Present(bounds, region, strength, flowing ? field : null, accent);
+            }
+            else if (kind == SurfaceKind.Application)
+            {
+                using (var region = new Region(new Rectangle(Point.Empty, bounds.Size)))
+                    surface.Present(bounds, region, current.Theme.GeneralTint, flowing ? field : null, accent);
             }
             else
             {
                 using (Region region = SurfaceWindows.ShellRegion(hwnd, bounds, kind, current.Explorer))
                 {
-                    strength = kind == SurfaceKind.Taskbar ? (100 - current.Explorer.TaskbarTransparency) : 42;
-                    surface.Present(bounds, region, Math.Min(45, strength), field, current.Accent);
+                    strength = kind == SurfaceKind.Taskbar ? (current.Explorer.TaskbarAcrylic ? 100 - current.Explorer.TaskbarTransparency : 30) : 42;
+                    surface.Present(bounds, region, Math.Min(45, strength), flowing ? field : null, accent);
                 }
             }
         }
@@ -197,7 +203,7 @@ internal sealed class AppearanceSurfaces : IDisposable
     public void Dispose() { motion.Dispose(); timer.Dispose(); Clear(); }
 }
 
-internal enum SurfaceKind { None, Word, Excel, PowerPoint, Explorer, Taskbar }
+internal enum SurfaceKind { None, Word, Excel, PowerPoint, Explorer, Taskbar, Application }
 
 internal sealed class SurfaceDpiScope : IDisposable
 {
@@ -236,14 +242,51 @@ internal static class SurfaceWindows
         if (name == "OpusApp" && content && state.Theme.Word) { kind = SurfaceKind.Word; process = "WINWORD"; }
         else if (name == "XLMAIN" && content && state.Theme.Excel) { kind = SurfaceKind.Excel; process = "EXCEL"; }
         else if (name == "PPTFrameClass" && content && state.Theme.PowerPoint) { kind = SurfaceKind.PowerPoint; process = "POWERPNT"; }
-        else if (ThemePaletteColors.IsFlowing(state.Theme.Palette) && state.Explorer.Enabled && name == "CabinetWClass")
+        else if (state.Explorer.Enabled && name == "CabinetWClass")
         { kind = SurfaceKind.Explorer; process = "explorer"; }
-        else if (ThemePaletteColors.IsFlowing(state.Theme.Palette) && state.Explorer.TaskbarAcrylic &&
+        else if (state.Theme.TaskbarColors &&
             (name == "Shell_TrayWnd" || name == "Shell_SecondaryTrayWnd"))
         { kind = SurfaceKind.Taskbar; process = "explorer"; }
-        else return SurfaceKind.None;
+        else
+        {
+            // Dedicated switches must not fall back to the general-app path.
+            if (name == "OpusApp" || name == "XLMAIN" || name == "PPTFrameClass" || name == "CabinetWClass" ||
+                name == "Shell_TrayWnd" || name == "Shell_SecondaryTrayWnd") return SurfaceKind.None;
+            return state.Theme.GeneralApps && state.Theme.GeneralTint > 0 && OrdinaryApplication(hwnd, name)
+                ? SurfaceKind.Application : SurfaceKind.None;
+        }
         uint pid; Native.GetWindowThreadProcessId(hwnd, out pid);
         return ProcessIdentity.Matches(pid, process) ? kind : SurfaceKind.None;
+    }
+
+    internal static bool OrdinaryApplication(IntPtr hwnd, string name)
+    {
+        if (name == "Progman" || name == "WorkerW" || name == "#32768" || name == "tooltips_class32" ||
+            name == "Windows.UI.Core.CoreWindow" || name == "Win32CaptureSample.SampleWindow") return false;
+        long style = Native.GetWindowLongPtr(hwnd, -16).ToInt64(), exStyle = Native.GetWindowLongPtr(hwnd, -20).ToInt64();
+        if ((style & 0x40000000L) != 0 || (exStyle & 0x08000080L) != 0 || GetWindow(hwnd, 4) != IntPtr.Zero ||
+            ((style & 0x00C20000L) == 0 && (exStyle & 0x00040000L) == 0)) return false;
+        Rectangle bounds;
+        if (!Native.IsWindowVisible(hwnd) || Native.IsIconic(hwnd) || IsCloaked(hwnd) ||
+            !TryBounds(hwnd, out bounds) || bounds.Width < 120 || bounds.Height < 80) return false;
+        uint pid; Native.GetWindowThreadProcessId(hwnd, out pid);
+        if (pid == (uint)Process.GetCurrentProcess().Id) return false;
+        try
+        {
+            using (var process = Process.GetProcessById((int)pid))
+            {
+                string processName = process.ProcessName;
+                return !processName.Equals("QQMusic", StringComparison.OrdinalIgnoreCase) &&
+                    !processName.StartsWith("Piaoklxt-MusicWallpaper", StringComparison.OrdinalIgnoreCase) &&
+                    !processName.Equals("explorer", StringComparison.OrdinalIgnoreCase) &&
+                    !processName.Equals("SearchHost", StringComparison.OrdinalIgnoreCase) &&
+                    !processName.Equals("StartMenuExperienceHost", StringComparison.OrdinalIgnoreCase) &&
+                    !processName.Equals("ShellExperienceHost", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+        catch (ArgumentException) { return false; }
+        catch (InvalidOperationException) { return false; }
+        catch (System.ComponentModel.Win32Exception) { return false; }
     }
 
     internal static Rectangle[] NativeOfficeContent(IntPtr window, Rectangle bounds, SurfaceKind kind)

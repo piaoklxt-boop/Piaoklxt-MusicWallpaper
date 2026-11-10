@@ -12,6 +12,7 @@ internal sealed class ThemePreview : Control
     private readonly Stopwatch clock = Stopwatch.StartNew();
     private Color paintedAccent;
     internal ThemePalette Palette;
+    internal ThemeTone Tone;
     internal ThemePreview()
     {
         Name = "ThemePreview"; Height = 132; Dock = DockStyle.Top;
@@ -32,7 +33,7 @@ internal sealed class ThemePreview : Control
         paintedAccent = accent;
         if (ThemePaletteColors.IsFlowing(Palette))
         {
-            using (var bitmap = ThemePaletteColors.CreateField(Palette, clock.Elapsed.TotalSeconds, accent))
+            using (var bitmap = ThemePaletteColors.CreateField(Palette, clock.Elapsed.TotalSeconds, accent, Tone))
             using (var attributes = new System.Drawing.Imaging.ImageAttributes())
             {
                 e.Graphics.InterpolationMode = InterpolationMode.HighQualityBilinear;
@@ -40,7 +41,7 @@ internal sealed class ThemePreview : Control
                 e.Graphics.DrawImage(bitmap, ClientRectangle, 0, 0, bitmap.Width, bitmap.Height, GraphicsUnit.Pixel, attributes);
             }
         }
-        else e.Graphics.Clear(Palette == ThemePalette.Artwork ? accent : ThemePaletteColors.Resolve(Palette, 0));
+        else e.Graphics.Clear(ThemePaletteColors.ApplyTone(Palette == ThemePalette.Artwork ? accent : ThemePaletteColors.Resolve(Palette, 0), Tone));
         using (var brush = new SolidBrush(Color.FromArgb(190, Color.White)))
             e.Graphics.FillRectangle(brush, 14, Height - 45, Math.Min(Width - 28, 252), 31);
         TextRenderer.DrawText(e.Graphics, "配色预览  ·  Aa  文本与色彩", Font,

@@ -20,6 +20,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length > 1 && args[0] == "--ordinary-fixture") return BroadThemeRegression.RunFixture(args[1]);
+        if (args.Length > 1 && args[0] == "--installed-theme-fixture") return BroadThemeRegression.CheckInstalled(uint.Parse(args[1]));
         if (args.Length > 0 && args[0] == "--appearance-probe") return AppearanceSurfacesRegression.ProbeLive();
         if (args.Length > 1 && args[0] == "--appearance-fixture") return AppearanceSurfacesRegression.VerifyOfficeFixture(new IntPtr(long.Parse(args[1])));
         filter = args.Length > 0 ? args[0] : null;
@@ -64,6 +66,7 @@ internal static class Program
         AppearanceSurfacesRegression.Register(Run);
         VividThemeRegression.Register(Run);
         SurfaceMotionRegression.Register(Run);
+        BroadThemeRegression.Register(Run);
         Run("software space list items support native double clicks", SemanticDoubleClick);
         Run("generic navigation retains its hit snapshot", () => QueuedNavigation(0));
         Run("generic navigation cancels after another click", () => QueuedNavigation(1));

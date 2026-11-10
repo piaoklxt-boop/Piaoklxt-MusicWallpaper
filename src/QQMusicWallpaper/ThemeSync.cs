@@ -177,7 +177,8 @@ namespace QQMusicWallpaperThemeSync
                         bool wasEnabled = enabled;
                         if (wasEnabled && !preferences.Enabled) ThemeRegistry.Restore(backupPath);
                         if (wasEnabled && colorizeShell && !preferences.ColorizeShell) ThemeRegistry.RestoreShell(backupPath);
-                        if (wasEnabled && (darkApps || matchBrightness) && !preferences.DarkApps && !preferences.MatchBrightness)
+                        if (wasEnabled && (darkApps || matchBrightness || officePreferences.Tone != QQMusicWallpaper.ThemeTone.Original) &&
+                            !preferences.DarkApps && !preferences.MatchBrightness && preferences.Tone == QQMusicWallpaper.ThemeTone.Original)
                             ThemeRegistry.RestoreApplicationBrightness(backupPath);
                         enabled = preferences.Enabled;
                         matchBrightness = preferences.MatchBrightness;
@@ -261,11 +262,11 @@ namespace QQMusicWallpaperThemeSync
         {
             accentItem.Checked = enabled;
             brightnessItem.Checked = matchBrightness;
-            brightnessItem.Enabled = enabled;
+            brightnessItem.Enabled = enabled && officePreferences.Tone == QQMusicWallpaper.ThemeTone.Original;
             shellItem.Checked = colorizeShell;
             shellItem.Enabled = enabled;
             appsItem.Checked = darkApps;
-            appsItem.Enabled = enabled;
+            appsItem.Enabled = enabled && officePreferences.Tone == QQMusicWallpaper.ThemeTone.Original;
         }
 
         private void ToggleAccent()
@@ -368,7 +369,9 @@ namespace QQMusicWallpaperThemeSync
                     bool light = brightness > 0.61;
                     if (force || delta > 35 || (matchBrightness && lastLight.HasValue && lastLight.Value != light))
                     {
-                        ThemeRegistry.Apply(color, matchBrightness ? (bool?)light : null, colorizeShell, darkApps);
+                        var tone = officePreferences.Tone;
+                        bool? applicationLight = tone == QQMusicWallpaper.ThemeTone.Original ? (matchBrightness ? (bool?)light : null) : tone == QQMusicWallpaper.ThemeTone.Light;
+                        ThemeRegistry.Apply(QQMusicWallpaper.ThemePaletteColors.ApplyTone(color, tone), applicationLight, colorizeShell, darkApps);
                         lastColor = color;
                         lastLight = light;
                         RefreshSurfaces();

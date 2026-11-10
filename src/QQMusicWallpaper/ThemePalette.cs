@@ -4,9 +4,26 @@ using System.Drawing;
 namespace QQMusicWallpaper;
 
 internal enum ThemePalette { Artwork, Acrylic, Warm, Cool, Spectrum, MonochromeGradient }
+internal enum ThemeTone { Original, Light, Dark }
 
 internal static class ThemePaletteColors
 {
+    internal static Color ApplyTone(Color color, ThemeTone tone)
+    {
+        if (color.IsEmpty || tone == ThemeTone.Original) return color;
+        double keep = tone == ThemeTone.Light ? .48 : .42;
+        double background = tone == ThemeTone.Light ? 255 * (1 - keep) : 0;
+        return Color.FromArgb((int)(color.R * keep + background), (int)(color.G * keep + background), (int)(color.B * keep + background));
+    }
+
+    internal static Bitmap CreateField(ThemePalette palette, double seconds, Color accent, ThemeTone tone)
+    {
+        Bitmap field = CreateField(palette, seconds, accent);
+        if (tone != ThemeTone.Original)
+            for (int y = 0; y < field.Height; y++) for (int x = 0; x < field.Width; x++)
+                field.SetPixel(x, y, ApplyTone(field.GetPixel(x, y), tone));
+        return field;
+    }
     internal static Color Resolve(ThemePalette palette, double seconds)
     {
         if (palette == ThemePalette.Acrylic) return Color.FromArgb(125, 139, 153);
