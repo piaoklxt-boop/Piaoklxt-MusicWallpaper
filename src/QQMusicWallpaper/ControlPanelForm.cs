@@ -27,7 +27,7 @@ internal sealed class ControlPanelForm : Form
     private readonly ComboBox tone = new ComboBox { Name = "ThemeTone", DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Top };
     private readonly CheckBox general = Check("GeneralApps", "其他普通应用窗口使用主题效果");
     private readonly TrackBar generalTint = Slider("GeneralTint", 0, 45);
-    private readonly CheckBox taskbarColors = Check("TaskbarColors", "任务栏使用主题颜色与明暗效果");
+    private readonly CheckBox taskbarColors = Check("TaskbarColors", "任务栏叠加主题配色（含炫彩与渐变）");
     private readonly CheckBox taskbar = Check("TaskbarAcrylic", "任务栏使用亚克力");
     private readonly CheckBox extendBottom = Check("ExtendBottom", "向下延伸壁纸底边至任务栏");
     private readonly TrackBar taskbarTransparency = Slider("TaskbarTransparency", 0, 100);
@@ -77,14 +77,12 @@ internal sealed class ControlPanelForm : Form
         var themePage = Page("主题配色");
         var taskbarPage = Page("任务栏");
         var officePage = Page("Microsoft Office");
-        var wallpaperPage = Page("壁纸画面");
         var generalPage = Page("其他应用");
         tabs.TabPages.Add(themePage.Item1);
         tabs.TabPages.Add(explorerPage.Item1);
         tabs.TabPages.Add(taskbarPage.Item1);
         tabs.TabPages.Add(officePage.Item1);
         tabs.TabPages.Add(generalPage.Item1);
-        tabs.TabPages.Add(wallpaperPage.Item1);
         var g = generalPage.Item2;
         Add(g, general);
         Add(g, Hint("默认覆盖浏览器、编辑器等普通应用主窗口，使用相同的单色、渐变或炫彩及浅色／深色效果。"));
@@ -118,7 +116,7 @@ internal sealed class ControlPanelForm : Form
         Add(t, Hint("控制动态配色。各应用的渲染范围与亚克力材质在对应页面设置。"));
         palette.Items.AddRange(new object[] { "单色 · 播放／暂停键", "中性灰蓝", "暖色炫彩", "冷色炫彩", "全色炫彩", "渐变单色 · 播放／暂停键" });
         Add(t, palette);
-        Add(t, Section("效果明暗"));
+        Add(t, Section("配色明暗"));
         tone.Items.AddRange(new object[] { "原色 · 保持配色亮度", "浅色 · 明亮柔和", "深色 · 深沉低亮" });
         Add(t, tone);
         Add(t, preview);
@@ -126,10 +124,10 @@ internal sealed class ControlPanelForm : Form
         Add(t, Section("系统明暗"));
         Add(t, brightness);
         Add(t, dark);
-        Add(t, Hint("选择浅色／深色效果时，也同步 Windows 应用明暗；原色模式使用上述设置。暂停后恢复原系统主题。"));
+        Add(t, Hint("配色明暗只改变色层亮度，不切换系统黑白主题。应用明暗由上面的设置独立控制，暂停后恢复原系统主题。"));
         var b = taskbarPage.Item2;
         Add(b, taskbarColors);
-        Add(b, Hint("主题颜色开关独立于亚克力；关闭亚克力也能显示炫彩与渐变。"));
+        Add(b, Hint("配色色层与亚克力分别控制，共用下方透明度。关闭色层后，亚克力仍可显示 Windows 原有颜色。"));
         Add(b, Section("亚克力材质"));
         Add(b, taskbar);
         Add(b, SliderRow("任务栏透明度", taskbarTransparency, "%"));
@@ -137,8 +135,8 @@ internal sealed class ControlPanelForm : Form
         Add(b, Section("Windows 系统强调色"));
         Add(b, shell);
         Add(b, Hint("决定系统是否使用主题代表色，与上方亚克力材质开关独立。"));
-        var w = wallpaperPage.Item2;
-        Add(w, Section("底边延伸"));
+        var w = b;
+        Add(w, Section("任务栏下方的壁纸"));
         Add(w, extendBottom);
         Add(w, SliderRow("底边采样深度", edgeDepth, "%"));
         Add(w, Hint("将最下方色带延伸到任务栏下方，保留上方画面的比例与点击位置。较小的采样深度更接近底边纯色；透过任务栏亚克力可以看到延伸画面。"));
@@ -233,12 +231,12 @@ internal sealed class ControlPanelForm : Form
     private void UpdateAvailability()
     {
         shell.Enabled = palette.Enabled = tone.Enabled = general.Enabled = taskbarColors.Enabled = follow.Checked;
-        brightness.Enabled = follow.Checked && tone.SelectedIndex == 0;
+        brightness.Enabled = follow.Checked;
         generalTint.Enabled = follow.Checked && general.Checked;
         word.Enabled = excel.Enabled = powerpoint.Enabled = officeInterface.Enabled = officeContent.Enabled = follow.Checked;
         officeTint.Enabled = follow.Checked && (officeInterface.Checked || officeContent.Checked);
-        taskbarTransparency.Enabled = taskbar.Checked; edgeDepth.Enabled = extendBottom.Checked;
-        dark.Enabled = follow.Checked && !brightness.Checked && tone.SelectedIndex == 0;
+        taskbarTransparency.Enabled = taskbar.Checked || (follow.Checked && taskbarColors.Checked); edgeDepth.Enabled = extendBottom.Checked;
+        dark.Enabled = follow.Checked && !brightness.Checked;
         transparency.Enabled = gray.Enabled = sidebar.Enabled = files.Enabled = header.Enabled = explorerEnabled.Checked;
         headerTint.Enabled = explorerEnabled.Checked && header.SelectedIndex == 0;
     }

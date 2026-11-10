@@ -63,7 +63,7 @@ internal static class VividThemeRegression
         {
             var tabs = (TabControl)form.Controls.Find("SettingsTabs", true)[0];
             Assert(Page(form.Controls.Find("ThemePalette", true)[0]) == tabs.TabPages[0], "Theme selection is not the entry page.");
-            Assert(Page(form.Controls.Find("ExtendBottom", true)[0]) != Page(form.Controls.Find("TaskbarAcrylic", true)[0]), "Wallpaper geometry is mixed with taskbar material.");
+            Assert(Page(form.Controls.Find("ExtendBottom", true)[0]) == Page(form.Controls.Find("TaskbarAcrylic", true)[0]), "Taskbar wallpaper extension is on a separate page.");
             Assert(Page(form.Controls.Find("ColorizeShell", true)[0]) == Page(form.Controls.Find("TaskbarAcrylic", true)[0]), "Taskbar accent settings are spread across pages.");
         }
     }

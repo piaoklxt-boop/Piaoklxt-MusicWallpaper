@@ -78,6 +78,12 @@ namespace QQMusicWallpaperThemeSync
         private readonly MenuItem appsItem;
         private readonly System.Threading.Timer timer;
         private readonly object updateLock = new object();
+        private readonly Action<Color, bool?, bool, bool> applyRegistry = ThemeRegistry.Apply;
+        private readonly QQMusicWallpaper.ThemeSamples samples = new QQMusicWallpaper.ThemeSamples(() =>
+        {
+            Color color; double brightness;
+            return Sampler.TrySample(out color, out brightness) ? new QQMusicWallpaper.ThemeSample(color, brightness) : null;
+        });
         private bool shuttingDown;
         private bool enabled;
         private bool matchBrightness;
@@ -122,7 +128,7 @@ namespace QQMusicWallpaperThemeSync
             var menu = hostMenu ?? new ContextMenu();
             accentItem = menu.MenuItems.Add("随 QQ 音乐桌面同步系统主题色", (s, e) => ToggleAccent());
             brightnessItem = menu.MenuItems.Add("同时切换系统明暗", (s, e) => ToggleBrightness());
-            shellItem = menu.MenuItems.Add("任务栏与开始菜单跟随颜色（深色）", (s, e) => ToggleShell());
+            shellItem = menu.MenuItems.Add("任务栏与开始菜单跟随系统强调色", (s, e) => ToggleShell());
             appsItem = menu.MenuItems.Add("文件资源管理器等使用深色", (s, e) => ToggleApps());
             menu.MenuItems.Add("立即取色", (s, e) => UpdateColor(true));
             if (showTray && hostMenu == null)
@@ -167,8 +173,10 @@ namespace QQMusicWallpaperThemeSync
 
         public void RequestApply(QQMusicWallpaper.ThemePreferences preferences, QQMusicWallpaper.ExplorerAppearanceSettings explorer, Action<string> completed)
         {
+            QQMusicWallpaper.OperationLog.Record(QQMusicWallpaper.OperationKind.SettingsApply, "theme-queued");
             Post(() =>
             {
+                QQMusicWallpaper.OperationLog.Record(QQMusicWallpaper.OperationKind.SettingsApply, "theme-started");
                 string error = null;
                 try
                 {
@@ -177,8 +185,7 @@ namespace QQMusicWallpaperThemeSync
                         bool wasEnabled = enabled;
                         if (wasEnabled && !preferences.Enabled) ThemeRegistry.Restore(backupPath);
                         if (wasEnabled && colorizeShell && !preferences.ColorizeShell) ThemeRegistry.RestoreShell(backupPath);
-                        if (wasEnabled && (darkApps || matchBrightness || officePreferences.Tone != QQMusicWallpaper.ThemeTone.Original) &&
-                            !preferences.DarkApps && !preferences.MatchBrightness && preferences.Tone == QQMusicWallpaper.ThemeTone.Original)
+                        if (wasEnabled && (darkApps || matchBrightness) && !preferences.DarkApps && !preferences.MatchBrightness)
                             ThemeRegistry.RestoreApplicationBrightness(backupPath);
                         enabled = preferences.Enabled;
                         matchBrightness = preferences.MatchBrightness;
@@ -191,8 +198,9 @@ namespace QQMusicWallpaperThemeSync
                         SaveSettings();
                         lastColor = Color.Empty;
                         lastLight = null;
-                        UpdateColor(true);
+                        if (!UpdateColor(true)) throw new InvalidOperationException("Theme colors could not be applied.");
                         RefreshSurfaces();
+                        QQMusicWallpaper.OperationLog.Record(QQMusicWallpaper.OperationKind.SettingsApply, "theme-saved");
                     }
                 }
                 catch (Exception ex)
@@ -208,6 +216,7 @@ namespace QQMusicWallpaperThemeSync
         {
             if (dispatcher.InvokeRequired) { dispatcher.Invoke((Action)Shutdown); return; }
             timer.Dispose();
+            samples.Dispose();
             lock (updateLock)
             {
                 shuttingDown = true;
@@ -262,11 +271,11 @@ namespace QQMusicWallpaperThemeSync
         {
             accentItem.Checked = enabled;
             brightnessItem.Checked = matchBrightness;
-            brightnessItem.Enabled = enabled && officePreferences.Tone == QQMusicWallpaper.ThemeTone.Original;
+            brightnessItem.Enabled = enabled;
             shellItem.Checked = colorizeShell;
             shellItem.Enabled = enabled;
             appsItem.Checked = darkApps;
-            appsItem.Enabled = enabled && officePreferences.Tone == QQMusicWallpaper.ThemeTone.Original;
+            appsItem.Enabled = enabled;
         }
 
         private void ToggleAccent()
@@ -301,6 +310,7 @@ namespace QQMusicWallpaperThemeSync
             {
                 if (wallpaperSessionActive || shuttingDown) return;
                 wallpaperSessionActive = true;
+                samples.Clear();
                 lastColor = Color.Empty;
                 lastLight = null;
                 RefreshSurfaces();
@@ -316,6 +326,7 @@ namespace QQMusicWallpaperThemeSync
             {
                 if (!wallpaperSessionActive) return;
                 wallpaperSessionActive = false;
+                samples.Clear();
                 ExplorerTint.Reset();
                 ThemeRegistry.Restore(backupPath);
                 lastColor = Color.Empty;
@@ -348,36 +359,39 @@ namespace QQMusicWallpaperThemeSync
             UpdateColor(true);
         }
 
-        private void UpdateColor(bool force)
+        private bool UpdateColor(bool force)
         {
             lock (updateLock)
             {
-                if (!enabled || !wallpaperSessionActive || shuttingDown) return;
+                if (!enabled || !wallpaperSessionActive || shuttingDown) return true;
                 try
                 {
-                    Color color; double brightness;
-                    if (QQMusicWallpaper.ThemePaletteColors.UsesPlaybackColor(palette))
+                    bool playback = QQMusicWallpaper.ThemePaletteColors.UsesPlaybackColor(palette);
+                    var sample = playback || matchBrightness ? samples.Read() : null;
+                    Color color = playback ? (sample == null ? lastColor : sample.Color) : QQMusicWallpaper.ThemePaletteColors.Resolve(palette, 0);
+                    // Auto brightness samples the music picture even for a
+                    // fixed/rainbow palette. Palette brightness is not a signal.
+                    bool? light = matchBrightness ? (sample == null ? lastLight : (bool?)(sample.Brightness > .61)) : null;
+                    if (color.IsEmpty)
                     {
-                        if (!Sampler.TrySample(out color, out brightness)) return;
-                    }
-                    else
-                    {
-                        color = QQMusicWallpaper.ThemePaletteColors.Resolve(palette, (DateTime.UtcNow - new DateTime(2020, 1, 1)).TotalSeconds);
-                        brightness = color.GetBrightness();
+                        if (force) ThemeRegistry.ApplyBrightness(light, darkApps);
+                        return true;
                     }
                     int delta = lastColor.IsEmpty ? 1000 : Math.Abs(color.R - lastColor.R) + Math.Abs(color.G - lastColor.G) + Math.Abs(color.B - lastColor.B);
-                    bool light = brightness > 0.61;
-                    if (force || delta > 35 || (matchBrightness && lastLight.HasValue && lastLight.Value != light))
+                    if (force || delta > 35 || light != lastLight)
                     {
-                        var tone = officePreferences.Tone;
-                        bool? applicationLight = tone == QQMusicWallpaper.ThemeTone.Original ? (matchBrightness ? (bool?)light : null) : tone == QQMusicWallpaper.ThemeTone.Light;
-                        ThemeRegistry.Apply(QQMusicWallpaper.ThemePaletteColors.ApplyTone(color, tone), applicationLight, colorizeShell, darkApps);
+                        applyRegistry(color, light, colorizeShell, darkApps);
                         lastColor = color;
                         lastLight = light;
                         RefreshSurfaces();
                     }
                 }
-                catch (Exception e) { File.AppendAllText(QQMusicWallpaper.AppPaths.ThemeLogPath, DateTime.Now + " " + e + Environment.NewLine); }
+                catch (Exception e)
+                {
+                    QQMusicWallpaper.RuntimeLog.Write("Theme color update failed: " + e.GetType().Name);
+                    return false;
+                }
+                return true;
             }
         }
     }
@@ -578,37 +592,62 @@ namespace QQMusicWallpaperThemeSync
         }
 
         public static void Apply(Color c, bool? light, bool colorizeShell, bool darkApps)
+        { Apply(c, light, colorizeShell, darkApps, path => Registry.CurrentUser.CreateSubKey(path), Notify); }
+
+        internal static void Apply(Color c, bool? light, bool colorizeShell, bool darkApps, Func<string, RegistryKey> open, Action notify)
         {
+            bool changed = false;
             int rgb = (c.R << 16) | (c.G << 8) | c.B;
             int bgr = unchecked((int)0xFF000000) | (c.B << 16) | (c.G << 8) | c.R;
-            using (var key = Registry.CurrentUser.CreateSubKey(Dwm))
+            using (var key = open(Dwm))
             {
-                key.SetValue("AccentColor", bgr, RegistryValueKind.DWord);
-                key.SetValue("ColorizationColor", rgb, RegistryValueKind.DWord);
-                key.SetValue("ColorizationAfterglow", rgb, RegistryValueKind.DWord);
-                key.SetValue("ColorPrevalence", 1, RegistryValueKind.DWord);
+                changed |= Write(key, "AccentColor", bgr, RegistryValueKind.DWord);
+                changed |= Write(key, "ColorizationColor", rgb, RegistryValueKind.DWord);
+                changed |= Write(key, "ColorizationAfterglow", rgb, RegistryValueKind.DWord);
+                changed |= Write(key, "ColorPrevalence", 1, RegistryValueKind.DWord);
             }
-            using (var key = Registry.CurrentUser.CreateSubKey(Explorer))
+            using (var key = open(Explorer))
             {
-                key.SetValue("AccentColorMenu", bgr, RegistryValueKind.DWord);
-                key.SetValue("StartColorMenu", bgr, RegistryValueKind.DWord);
-                key.SetValue("AccentPalette", MakePalette(c), RegistryValueKind.Binary);
+                changed |= Write(key, "AccentColorMenu", bgr, RegistryValueKind.DWord);
+                changed |= Write(key, "StartColorMenu", bgr, RegistryValueKind.DWord);
+                changed |= Write(key, "AccentPalette", MakePalette(c), RegistryValueKind.Binary);
             }
-            using (var key = Registry.CurrentUser.CreateSubKey(Desktop))
-                key.SetValue("AutoColorization", 0, RegistryValueKind.DWord);
+            using (var key = open(Desktop))
+                changed |= Write(key, "AutoColorization", 0, RegistryValueKind.DWord);
             if (light.HasValue)
-                using (var key = Registry.CurrentUser.CreateSubKey(Personalize))
-                    key.SetValue("AppsUseLightTheme", light.Value ? 1 : 0, RegistryValueKind.DWord);
+                using (var key = open(Personalize))
+                    changed |= Write(key, "AppsUseLightTheme", light.Value ? 1 : 0, RegistryValueKind.DWord);
             else if (darkApps)
-                using (var key = Registry.CurrentUser.CreateSubKey(Personalize))
-                    key.SetValue("AppsUseLightTheme", 0, RegistryValueKind.DWord);
+                using (var key = open(Personalize))
+                    changed |= Write(key, "AppsUseLightTheme", 0, RegistryValueKind.DWord);
             if (colorizeShell)
-                using (var key = Registry.CurrentUser.CreateSubKey(Personalize))
+                using (var key = open(Personalize))
                 {
-                    key.SetValue("SystemUsesLightTheme", 0, RegistryValueKind.DWord);
-                    key.SetValue("ColorPrevalence", 1, RegistryValueKind.DWord);
+                    changed |= Write(key, "ColorPrevalence", 1, RegistryValueKind.DWord);
                 }
-            Notify();
+            if (changed) notify();
+        }
+
+        private static bool Write(RegistryKey key, string name, object value, RegistryValueKind kind)
+        {
+            object before = key.GetValue(name);
+            if (before is byte[] && value is byte[])
+            {
+                var a = (byte[])before; var b = (byte[])value;
+                bool same = a.Length == b.Length;
+                for (int i = 0; same && i < a.Length; i++) same = a[i] == b[i];
+                if (same) return false;
+            }
+            else if (Equals(before, value)) return false;
+            key.SetValue(name, value, kind);
+            return true;
+        }
+
+        internal static void ApplyBrightness(bool? light, bool darkApps)
+        {
+            if (!light.HasValue && !darkApps) return;
+            using (var key = Registry.CurrentUser.CreateSubKey(Personalize))
+                if (Write(key, "AppsUseLightTheme", light == true ? 1 : 0, RegistryValueKind.DWord)) Notify();
         }
 
         private static byte[] MakePalette(Color c)
@@ -632,10 +671,33 @@ namespace QQMusicWallpaperThemeSync
         }
 
         private static void Notify()
+        { notifications.Request(); }
+
+        private static readonly QQMusicWallpaper.ThemeNotifications notifications = new QQMusicWallpaper.ThemeNotifications(DeliverNotifications);
+
+        private static void DeliverNotifications()
+        {
+            var elapsed = Stopwatch.StartNew(); int delayed = 0, visited = 0;
+            QQMusicWallpaper.Native.EnumWindows((window, unused) =>
+            {
+                uint pid; QQMusicWallpaper.Native.GetWindowThreadProcessId(window, out pid);
+                if (pid == (uint)Process.GetCurrentProcess().Id) return true;
+                visited++;
+                if (!NotifyWindow(window)) delayed++;
+                return true;
+            }, IntPtr.Zero);
+            if (delayed > 0 || elapsed.ElapsedMilliseconds > 1500)
+                QQMusicWallpaper.RuntimeLog.Write("Theme notification batch: windows=" + visited + "; delayed=" + delayed + "; elapsedMs=" + elapsed.ElapsedMilliseconds);
+        }
+
+        internal static bool NotifyWindow(IntPtr window)
         {
             IntPtr result;
-            SendMessageTimeout(new IntPtr(0xffff), 0x001A, IntPtr.Zero, "ImmersiveColorSet", 2, 1000, out result);
-            SendMessageTimeout(new IntPtr(0xffff), 0x031A, IntPtr.Zero, null, 2, 1000, out result);
+            // Explicit recipients avoid HWND_BROADCAST's timeout multiplication.
+            // These calls run only on the coalescing notification worker.
+            bool settings = SendMessageTimeout(window, 0x001A, IntPtr.Zero, "ImmersiveColorSet", 0x23, 100, out result) != IntPtr.Zero;
+            bool theme = SendMessageTimeout(window, 0x031A, IntPtr.Zero, null, 0x23, 100, out result) != IntPtr.Zero;
+            return settings && theme;
         }
     }
 }

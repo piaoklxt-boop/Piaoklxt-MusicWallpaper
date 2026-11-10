@@ -130,7 +130,7 @@ internal sealed class AppearanceSurfaces : IDisposable
             {
                 using (Region region = SurfaceWindows.ShellRegion(hwnd, bounds, kind, current.Explorer))
                 {
-                    strength = kind == SurfaceKind.Taskbar ? (current.Explorer.TaskbarAcrylic ? 100 - current.Explorer.TaskbarTransparency : 30) : 42;
+                    strength = kind == SurfaceKind.Taskbar ? 100 - current.Explorer.TaskbarTransparency : 42;
                     surface.Present(bounds, region, Math.Min(45, strength), flowing ? field : null, accent);
                 }
             }

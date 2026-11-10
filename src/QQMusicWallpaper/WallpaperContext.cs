@@ -527,10 +527,13 @@ internal sealed class WallpaperContext : ApplicationContext
         {
             var context = themeContext;
             if (context == null) { completed("主题服务还在启动，请稍后重试。"); return; }
+            OperationLog.Record(OperationKind.SettingsApply, "runtime-queued");
             explorerThemeRuntime.ApplyAsync(explorer, error =>
             {
+                OperationLog.Record(OperationKind.SettingsApply, error == null ? "runtime-completed" : "runtime-failed");
                 if (error != null) { completed(error); return; }
                 RendererAppearance.Apply(rendererProcess, explorer);
+                OperationLog.Record(OperationKind.SettingsApply, "renderer-posted");
                 context.RequestApply(theme, explorer, completed);
             });
         };
