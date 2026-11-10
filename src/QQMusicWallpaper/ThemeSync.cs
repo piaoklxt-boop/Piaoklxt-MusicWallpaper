@@ -16,6 +16,7 @@ namespace QQMusicWallpaperThemeSync
         private static Mutex instance;
         internal static void RunWorker(string root)
         {
+            Sampler.Standalone = true;
             bool created;
             instance = new Mutex(true, @"Local\PiaoklxtMusicWallpaper.ThemeSync", out created);
             if (!created) return;
@@ -29,6 +30,7 @@ namespace QQMusicWallpaperThemeSync
         [STAThread]
         private static void Main(string[] args)
         {
+            Sampler.Standalone = true;
             string root = AppDomain.CurrentDomain.BaseDirectory;
             if (args.Length > 0 && args[0] == "--sample")
             {
@@ -82,6 +84,9 @@ namespace QQMusicWallpaperThemeSync
         private bool colorizeShell;
         private bool darkApps;
         private QQMusicWallpaper.ThemePalette palette;
+        private QQMusicWallpaper.ThemePreferences officePreferences;
+        private QQMusicWallpaper.ExplorerAppearanceSettings explorerPreferences;
+        private readonly QQMusicWallpaper.AppearanceSurfaces surfaces;
         private bool wallpaperSessionActive;
         private Color lastColor = Color.Empty;
         private bool? lastLight;
@@ -105,6 +110,8 @@ namespace QQMusicWallpaperThemeSync
             settingsPath = Path.Combine(root, "theme-sync.ini");
             backupPath = Path.Combine(root, "theme-original.reg.txt");
             ReadSettings();
+            explorerPreferences = QQMusicWallpaper.ExplorerAppearanceSettings.Load(QQMusicWallpaper.ExplorerAppearanceSettings.SettingsPath);
+            surfaces = new QQMusicWallpaper.AppearanceSurfaces();
             // A backup can survive an abnormal termination. Restore it before a
             // new wallpaper session snapshots the user's current color choices.
             if (File.Exists(backupPath)) ThemeRegistry.Restore(backupPath);
@@ -158,7 +165,7 @@ namespace QQMusicWallpaperThemeSync
         public void RequestBeginWallpaperSession() { Post(BeginWallpaperSession); }
         public void RequestEndWallpaperSession() { Post(EndWallpaperSession); }
 
-        public void RequestApply(QQMusicWallpaper.ThemePreferences preferences, Action<string> completed)
+        public void RequestApply(QQMusicWallpaper.ThemePreferences preferences, QQMusicWallpaper.ExplorerAppearanceSettings explorer, Action<string> completed)
         {
             Post(() =>
             {
@@ -177,11 +184,14 @@ namespace QQMusicWallpaperThemeSync
                         colorizeShell = preferences.ColorizeShell;
                         darkApps = preferences.DarkApps;
                         palette = preferences.Palette;
+                        officePreferences = preferences.Copy();
+                        explorerPreferences = explorer.Copy();
                         if (!wasEnabled && enabled && wallpaperSessionActive) ThemeRegistry.Backup(backupPath);
                         SaveSettings();
                         lastColor = Color.Empty;
                         lastLight = null;
                         UpdateColor(true);
+                        RefreshSurfaces();
                     }
                 }
                 catch (Exception ex)
@@ -195,6 +205,7 @@ namespace QQMusicWallpaperThemeSync
 
         public void Shutdown()
         {
+            if (dispatcher.InvokeRequired) { dispatcher.Invoke((Action)Shutdown); return; }
             timer.Dispose();
             lock (updateLock)
             {
@@ -202,6 +213,7 @@ namespace QQMusicWallpaperThemeSync
                 wallpaperSessionActive = false;
                 ExplorerTint.Reset();
                 ThemeRegistry.Restore(backupPath);
+                surfaces.Dispose();
             }
             if (tray != null)
             {
@@ -212,7 +224,8 @@ namespace QQMusicWallpaperThemeSync
 
         private void ReadSettings()
         {
-            palette = QQMusicWallpaper.ThemePreferences.Load(settingsPath).Palette;
+            officePreferences = QQMusicWallpaper.ThemePreferences.Load(settingsPath);
+            palette = officePreferences.Palette;
             if (!File.Exists(settingsPath)) return;
             foreach (string line in File.ReadAllLines(settingsPath))
             {
@@ -225,12 +238,23 @@ namespace QQMusicWallpaperThemeSync
 
         private void SaveSettings()
         {
-            File.WriteAllText(settingsPath, "Enabled=" + (enabled ? "1" : "0") + Environment.NewLine +
-                "MatchBrightness=" + (matchBrightness ? "1" : "0") + Environment.NewLine +
-                "ColorizeShell=" + (colorizeShell ? "1" : "0") + Environment.NewLine +
-                "DarkApps=" + (darkApps ? "1" : "0") + Environment.NewLine +
-                "Palette=" + (int)palette + Environment.NewLine, Encoding.UTF8);
+            QQMusicWallpaper.AppearanceIni.WriteAtomic(settingsPath, CurrentPreferences().Serialize(), Encoding.UTF8);
+            RefreshSurfaces();
             UpdateMenu();
+        }
+
+        private QQMusicWallpaper.ThemePreferences CurrentPreferences()
+        {
+            var value = officePreferences.Copy();
+            value.Enabled = enabled; value.MatchBrightness = matchBrightness;
+            value.ColorizeShell = colorizeShell; value.DarkApps = darkApps; value.Palette = palette;
+            return value;
+        }
+
+        private void RefreshSurfaces()
+        {
+            surfaces.Configure(new QQMusicWallpaper.SurfaceAppearanceState(CurrentPreferences(), explorerPreferences,
+                lastColor, wallpaperSessionActive && !shuttingDown));
         }
 
         private void UpdateMenu()
@@ -278,6 +302,7 @@ namespace QQMusicWallpaperThemeSync
                 wallpaperSessionActive = true;
                 lastColor = Color.Empty;
                 lastLight = null;
+                RefreshSurfaces();
                 if (!enabled) return;
                 ThemeRegistry.Backup(backupPath);
                 UpdateColor(true);
@@ -294,6 +319,7 @@ namespace QQMusicWallpaperThemeSync
                 ThemeRegistry.Restore(backupPath);
                 lastColor = Color.Empty;
                 lastLight = null;
+                RefreshSurfaces();
             }
         }
 
@@ -345,6 +371,7 @@ namespace QQMusicWallpaperThemeSync
                         ThemeRegistry.Apply(color, matchBrightness ? (bool?)light : null, colorizeShell, darkApps);
                         lastColor = color;
                         lastLight = light;
+                        RefreshSurfaces();
                     }
                 }
                 catch (Exception e) { File.AppendAllText(QQMusicWallpaper.AppPaths.ThemeLogPath, DateTime.Now + " " + e + Environment.NewLine); }
@@ -387,6 +414,7 @@ namespace QQMusicWallpaperThemeSync
 
     internal static class Sampler
     {
+        internal static bool Standalone;
         private delegate bool EnumProc(IntPtr hwnd, IntPtr data);
         [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc callback, IntPtr data);
         [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr data);
@@ -420,6 +448,9 @@ namespace QQMusicWallpaperThemeSync
             if (hwnd == IntPtr.Zero || !GetClientRect(hwnd, out rect)) return false;
             int w = rect.R - rect.L, h = rect.B - rect.T;
             if (w < 300 || h < 200) return false;
+            if (Standalone) QQMusicWallpaper.PlaybackAccent.RefreshStandalone();
+            Rectangle button;
+            if (!QQMusicWallpaper.PlaybackAccent.TryGetBounds(new Size(w, h), out button)) return false;
             using (var bitmap = new Bitmap(w, h, PixelFormat.Format32bppArgb))
             using (var graphics = Graphics.FromImage(bitmap))
             {
@@ -428,35 +459,27 @@ namespace QQMusicWallpaperThemeSync
                 try { ok = PrintWindow(hwnd, dc, 2); }
                 finally { graphics.ReleaseHdc(dc); }
                 if (!ok) return false;
-                // QQ 播放页的唱片/封面在右侧；按高饱和像素的色相聚类，避开歌词和空白背景。
-                int[] weights = new int[36], rr = new int[36], gg = new int[36], bb = new int[36];
-                long lightSum = 0; int lightCount = 0;
-                var data = bitmap.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-                try
-                {
-                    for (int y = h / 10; y < h * 8 / 10; y += 10)
-                        for (int x = 0; x < w; x += 10)
-                        {
-                            int pixel = Marshal.ReadInt32(data.Scan0, y * data.Stride + x * 4);
-                            int r = (pixel >> 16) & 255, g = (pixel >> 8) & 255, b = pixel & 255;
-                            lightSum += (r * 2126 + g * 7152 + b * 722) / 10000; lightCount++;
-                            if (x < w * 55 / 100 || x > w * 96 / 100) continue;
-                            int max = Math.Max(r, Math.Max(g, b)), min = Math.Min(r, Math.Min(g, b));
-                            if (max - min < 35 || max < 45 || max > 248) continue;
-                            Color c = Color.FromArgb(r, g, b);
-                            int bin = Math.Min(35, (int)(c.GetHue() / 10));
-                            int weight = max - min;
-                            weights[bin] += weight; rr[bin] += r * weight; gg[bin] += g * weight; bb[bin] += b * weight;
-                        }
-                }
-                finally { bitmap.UnlockBits(data); }
-                meanLight = lightCount == 0 ? 0.5 : (double)lightSum / lightCount / 255;
-                int best = 0;
-                for (int i = 1; i < 36; i++) if (weights[i] > weights[best]) best = i;
-                if (weights[best] < 2000) return false;
-                result = Color.FromArgb(rr[best] / weights[best], gg[best] / weights[best], bb[best] / weights[best]);
-                return true;
+                return TrySampleFrame(bitmap, button, out result, out meanLight);
             }
+        }
+
+        internal static bool TrySampleFrame(Bitmap bitmap, Rectangle button, out Color result, out double meanLight)
+        {
+            result = Color.Empty; meanLight = 0;
+            Rectangle verified;
+            if (!QQMusicWallpaper.PlaybackAccent.TryGetBounds(bitmap.Size, out verified) || verified != button ||
+                !QQMusicWallpaper.PlaybackAccent.TryColor(bitmap, button, out result)) return false;
+            // Brightness is still a property of the whole picture, independent of accent selection.
+            double lightSum = 0; int lightCount = 0;
+            for (int y = bitmap.Height / 10; y < bitmap.Height * 8 / 10; y += 24)
+                for (int x = 0; x < bitmap.Width; x += 24)
+                {
+                    Color pixel = bitmap.GetPixel(x, y);
+                    lightSum += (pixel.R * 0.2126 + pixel.G * 0.7152 + pixel.B * 0.0722) / 255;
+                    lightCount++;
+                }
+            meanLight = lightCount == 0 ? 0.5 : lightSum / lightCount;
+            return true;
         }
     }
 

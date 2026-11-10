@@ -10,5 +10,8 @@
   <ItemGroup>
     <Compile Include="..\..\src\QQMusicWallpaper\*.cs" Link="Controller\%(Filename)%(Extension)" />
     <Reference Include="Accessibility" />
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
+    <Reference Include="WindowsBase" />
   </ItemGroup>
 </Project>

@@ -13,6 +13,12 @@ internal sealed class ThemePreferences
     public bool ColorizeShell = true;
     public bool DarkApps = true;
     public ThemePalette Palette;
+    public bool Word = true;
+    public bool Excel = true;
+    public bool PowerPoint = true;
+    public bool OfficeInterface = true;
+    public bool OfficeContent = true;
+    public int OfficeTint = 22;
 
     public static ThemePreferences Load(string path)
     {
@@ -24,8 +30,25 @@ internal sealed class ThemePreferences
         value.ColorizeShell = AppearanceIni.ReadInt(text, "ColorizeShell", 1, 0, 1) == 1;
         value.DarkApps = AppearanceIni.ReadInt(text, "DarkApps", 1, 0, 1) == 1;
         value.Palette = (ThemePalette)AppearanceIni.ReadInt(text, "Palette", 0, 0, 4);
+        value.Word = AppearanceIni.ReadInt(text, "Word", 1, 0, 1) == 1;
+        value.Excel = AppearanceIni.ReadInt(text, "Excel", 1, 0, 1) == 1;
+        value.PowerPoint = AppearanceIni.ReadInt(text, "PowerPoint", 1, 0, 1) == 1;
+        value.OfficeInterface = AppearanceIni.ReadInt(text, "OfficeInterface", 1, 0, 1) == 1;
+        value.OfficeContent = AppearanceIni.ReadInt(text, "OfficeContent", 1, 0, 1) == 1;
+        value.OfficeTint = AppearanceIni.ReadInt(text, "OfficeTint", 22, 0, 45);
         return value;
     }
+
+    internal string Serialize()
+    {
+        return "Enabled=" + (Enabled ? 1 : 0) + "\nMatchBrightness=" + (MatchBrightness ? 1 : 0) +
+            "\nColorizeShell=" + (ColorizeShell ? 1 : 0) + "\nDarkApps=" + (DarkApps ? 1 : 0) +
+            "\nPalette=" + (int)Palette + "\nWord=" + (Word ? 1 : 0) + "\nExcel=" + (Excel ? 1 : 0) +
+            "\nPowerPoint=" + (PowerPoint ? 1 : 0) + "\nOfficeInterface=" + (OfficeInterface ? 1 : 0) +
+            "\nOfficeContent=" + (OfficeContent ? 1 : 0) + "\nOfficeTint=" + Math.Max(0, Math.Min(45, OfficeTint)) + "\n";
+    }
+
+    internal ThemePreferences Copy() { return (ThemePreferences)MemberwiseClone(); }
 }
 
 internal enum ExplorerHeaderStyle { ThemeColor, Neutral, Acrylic }

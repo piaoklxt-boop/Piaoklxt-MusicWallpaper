@@ -531,7 +531,7 @@ internal sealed class WallpaperContext : ApplicationContext
             {
                 if (error != null) { completed(error); return; }
                 RendererAppearance.Apply(rendererProcess, explorer);
-                context.RequestApply(theme, completed);
+                context.RequestApply(theme, explorer, completed);
             });
         };
         PresentControlPanel();
@@ -2443,6 +2443,7 @@ internal sealed class WallpaperContext : ApplicationContext
 						Rectangle sourceBounds = Rectangle.FromLTRB(sourceRect.Left,
 							sourceRect.Top, sourceRect.Right, sourceRect.Bottom);
 						areas = GetQQInteractiveAreas(snapshot, sourceRect, visibleArea);
+                        PlaybackAccent.Publish(source, sourceBounds, snapshot);
 						Rectangle volumeBounds;
 						if (snapshot.TryFindVisibleControl("调节音量",
 							AllAccessibleSpace, out volumeBounds) ||

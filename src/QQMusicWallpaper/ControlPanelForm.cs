@@ -10,6 +10,12 @@ internal sealed class ControlPanelForm : Form
     private readonly CheckBox shell = Check("ColorizeShell", "任务栏和开始菜单跟随主题色");
     private readonly CheckBox brightness = Check("MatchBrightness", "根据封面亮度自动切换应用明暗");
     private readonly CheckBox dark = Check("DarkApps", "应用默认使用深色模式");
+    private readonly CheckBox word = Check("Word", "Word");
+    private readonly CheckBox excel = Check("Excel", "Excel");
+    private readonly CheckBox powerpoint = Check("PowerPoint", "PowerPoint");
+    private readonly CheckBox officeInterface = Check("OfficeInterface", "渲染界面区域（标题栏、功能区及侧栏）");
+    private readonly CheckBox officeContent = Check("OfficeContent", "渲染内容区域（正文纸张、单元格及幻灯片）");
+    private readonly TrackBar officeTint = Slider("OfficeTint", 0, 45);
     private readonly CheckBox explorerEnabled = Check("ExplorerEnabled", "启用文件资源管理器外观");
     private readonly CheckBox sidebar = Check("SidebarAcrylic", "左侧导航栏使用亚克力");
     private readonly CheckBox files = Check("FileAreaAcrylic", "文件区域使用亚克力");
@@ -58,9 +64,17 @@ internal sealed class ControlPanelForm : Form
         var explorerPage = Page("文件资源管理器");
         var themePage = Page("统一主题");
         var taskbarPage = Page("任务栏");
+        var officePage = Page("Microsoft Office");
         tabs.TabPages.Add(explorerPage.Item1);
         tabs.TabPages.Add(taskbarPage.Item1);
         tabs.TabPages.Add(themePage.Item1);
+        tabs.TabPages.Add(officePage.Item1);
+        var o = officePage.Item2;
+        Add(o, Hint("跟随统一主题；分别控制应用和渲染区域。"));
+        Add(o, word); Add(o, excel); Add(o, powerpoint);
+        Add(o, officeInterface); Add(o, officeContent);
+        Add(o, SliderRow("颜色强度", officeTint, "%"));
+        Add(o, Hint("只改变屏幕显示，不修改文件格式、打印或导出颜色。关闭统一主题或暂停壁纸后恢复原显示。区域无法识别时暂不渲染，避免影响已关闭的区域。"));
         var e = explorerPage.Item2;
         Add(e, explorerEnabled);
         Add(e, Hint("文件区与预览区共用亚克力；顶部样式作用于地址栏和命令栏。"));
@@ -76,16 +90,16 @@ internal sealed class ControlPanelForm : Form
         Add(e, SliderRow("顶部主题色强度", headerTint, "%"));
         var t = themePage.Item2;
         Add(t, follow);
-        palette.Items.AddRange(new object[] { "跟随 QQ 音乐画面", "亚克力 · 中性", "暖色炫彩", "冷色炫彩", "全色炫彩" });
+        palette.Items.AddRange(new object[] { "单色 · 跟随播放／暂停键", "亚克力 · 中性", "暖色炫彩", "冷色炫彩", "全色炫彩" });
         Add(t, palette);
-        Add(t, Hint("炫彩以两分钟为周期缓慢变色；任务栏与资源管理器共用主题色。资源管理器顶部选择“主题色”时同步显示。"));
+        Add(t, Hint("炫彩在同一区域内让多种颜色持续游动、交融。资源管理器、任务栏和 Office 共用配色；系统强调色保持稳定。"));
         var b = taskbarPage.Item2;
         Add(b, taskbar);
         Add(b, SliderRow("亚克力透明度", taskbarTransparency, "%"));
         Add(b, extendBottom);
         Add(b, SliderRow("底边采样深度", edgeDepth, "%"));
         Add(b, Hint("仅延伸画面最下方的一条色带，不改变上方画面比例或点击位置。较小采样深度更接近底边纯色；开启任务栏亚克力可看到模糊后的延伸。"));
-        Add(t, Hint("播放封面变化时自动取色。暂停动态壁纸后恢复原系统主题色。"));
+        Add(t, Hint("单色主题取当前播放／暂停键的颜色。暂停动态壁纸后恢复原系统主题色。"));
         Add(t, shell);
         Add(t, brightness);
         Add(t, dark);
@@ -102,8 +116,8 @@ internal sealed class ControlPanelForm : Form
         Controls.Add(root);
         AcceptButton = apply;
         CancelButton = close;
-        foreach (var c in new[] { follow, shell, brightness, dark, explorerEnabled, sidebar, files, taskbar, extendBottom }) c.CheckedChanged += delegate { MarkDirty(); };
-        foreach (var c in new[] { transparency, gray, headerTint, taskbarTransparency, edgeDepth }) c.ValueChanged += delegate { MarkDirty(); };
+        foreach (var c in new[] { follow, shell, brightness, dark, explorerEnabled, sidebar, files, taskbar, extendBottom, word, excel, powerpoint, officeInterface, officeContent }) c.CheckedChanged += delegate { MarkDirty(); };
+        foreach (var c in new[] { transparency, gray, headerTint, taskbarTransparency, edgeDepth, officeTint }) c.ValueChanged += delegate { MarkDirty(); };
         palette.SelectedIndexChanged += delegate { MarkDirty(); };
         header.SelectedIndexChanged += delegate { MarkDirty(); };
         apply.Click += delegate { Apply(); };
@@ -154,6 +168,9 @@ internal sealed class ControlPanelForm : Form
         transparency.Value = explorer.Transparency; gray.Value = explorer.TintGray;
         header.SelectedIndex = (int)explorer.HeaderStyle; headerTint.Value = explorer.HeaderTint;
         palette.SelectedIndex = (int)theme.Palette;
+        word.Checked = theme.Word; excel.Checked = theme.Excel; powerpoint.Checked = theme.PowerPoint;
+        officeInterface.Checked = theme.OfficeInterface; officeContent.Checked = theme.OfficeContent;
+        officeTint.Value = theme.OfficeTint;
         taskbar.Checked = explorer.TaskbarAcrylic; taskbarTransparency.Value = explorer.TaskbarTransparency;
         extendBottom.Checked = explorer.ExtendBottom; edgeDepth.Value = explorer.EdgeDepth;
         loading = false;
@@ -162,6 +179,8 @@ internal sealed class ControlPanelForm : Form
     private void UpdateAvailability()
     {
         shell.Enabled = brightness.Enabled = palette.Enabled = follow.Checked;
+        word.Enabled = excel.Enabled = powerpoint.Enabled = officeInterface.Enabled = officeContent.Enabled = follow.Checked;
+        officeTint.Enabled = follow.Checked && (officeInterface.Checked || officeContent.Checked);
         taskbarTransparency.Enabled = taskbar.Checked; edgeDepth.Enabled = extendBottom.Checked;
         dark.Enabled = follow.Checked && !brightness.Checked;
         transparency.Enabled = gray.Enabled = sidebar.Enabled = files.Enabled = header.Enabled = explorerEnabled.Checked;
@@ -184,7 +203,7 @@ internal sealed class ControlPanelForm : Form
             ";taskbar=" + taskbar.Checked + ";taskbarTransparency=" + taskbarTransparency.Value + ";edge=" + extendBottom.Checked + ";depth=" + edgeDepth.Value;
     }
     internal ExplorerAppearanceSettings ReadExplorer() { return new ExplorerAppearanceSettings { Enabled = explorerEnabled.Checked, Transparency = transparency.Value, TintGray = gray.Value, SidebarAcrylic = sidebar.Checked, FileAreaAcrylic = files.Checked, HeaderStyle = (ExplorerHeaderStyle)header.SelectedIndex, HeaderTint = headerTint.Value, TaskbarAcrylic = taskbar.Checked, TaskbarTransparency = taskbarTransparency.Value, ExtendBottom = extendBottom.Checked, EdgeDepth = edgeDepth.Value }; }
-    internal ThemePreferences ReadTheme() { return new ThemePreferences { Enabled = follow.Checked, ColorizeShell = shell.Checked, MatchBrightness = brightness.Checked, DarkApps = dark.Checked, Palette = (ThemePalette)palette.SelectedIndex }; }
+    internal ThemePreferences ReadTheme() { return new ThemePreferences { Enabled = follow.Checked, ColorizeShell = shell.Checked, MatchBrightness = brightness.Checked, DarkApps = dark.Checked, Palette = (ThemePalette)palette.SelectedIndex, Word = word.Checked, Excel = excel.Checked, PowerPoint = powerpoint.Checked, OfficeInterface = officeInterface.Checked, OfficeContent = officeContent.Checked, OfficeTint = officeTint.Value }; }
     private void Apply()
     {
         if (applying || ApplyRequested == null) return;

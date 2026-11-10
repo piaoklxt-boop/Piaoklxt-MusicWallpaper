@@ -20,6 +20,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--appearance-probe") return AppearanceSurfacesRegression.ProbeLive();
+        if (args.Length > 1 && args[0] == "--appearance-fixture") return AppearanceSurfacesRegression.VerifyOfficeFixture(new IntPtr(long.Parse(args[1])));
         filter = args.Length > 0 ? args[0] : null;
         typeof(AppPaths).GetField("LogPath", BindingFlags.Static | BindingFlags.Public)
             .SetValue(null, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "controller-regression.log"));
@@ -59,6 +61,7 @@ internal static class Program
         AppearanceRuntimeRegression.Register(Run);
         OperationLogRegression.Register(Run);
         SoftwareSpaceRegression.Register(Run);
+        AppearanceSurfacesRegression.Register(Run);
         Run("software space list items support native double clicks", SemanticDoubleClick);
         Run("generic navigation retains its hit snapshot", () => QueuedNavigation(0));
         Run("generic navigation cancels after another click", () => QueuedNavigation(1));

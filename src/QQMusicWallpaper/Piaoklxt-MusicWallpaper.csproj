@@ -19,5 +19,8 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Accessibility" />
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
+    <Reference Include="WindowsBase" />
   </ItemGroup>
 </Project>
