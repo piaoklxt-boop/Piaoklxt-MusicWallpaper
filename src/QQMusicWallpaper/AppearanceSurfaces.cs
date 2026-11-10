@@ -36,12 +36,14 @@ internal sealed class AppearanceSurfaces : IDisposable
     private DateTime nextErrorLog;
     private Bitmap field;
     private readonly Func<IntPtr, SurfaceAppearanceState, SurfaceKind> identify;
+    private readonly SurfaceMotionEvents motion;
 
     internal AppearanceSurfaces() : this(SurfaceWindows.Identify) { }
 
     internal AppearanceSurfaces(Func<IntPtr, SurfaceAppearanceState, SurfaceKind> identify)
     {
         this.identify = identify;
+        motion = new SurfaceMotionEvents(OnMotion);
         timer = new System.Windows.Forms.Timer { Interval = 66 };
         timer.Tick += delegate
         {
@@ -96,6 +98,7 @@ internal sealed class AppearanceSurfaces : IDisposable
             TintSurface surface = pair.Value;
             uint pid; Native.GetWindowThreadProcessId(hwnd, out pid);
             if (!Native.IsWindow(hwnd) || pid != surface.ProcessId) { remove.Add(hwnd); continue; }
+            if (surface.Moving) { surface.Hide(); continue; }
             Rectangle bounds;
             if (!Native.IsWindowVisible(hwnd) || Native.IsIconic(hwnd) || SurfaceWindows.IsCloaked(hwnd) ||
                 !SurfaceWindows.TryBounds(hwnd, out bounds) || bounds.Width < 2 || bounds.Height < 2 ||
@@ -173,7 +176,25 @@ internal sealed class AppearanceSurfaces : IDisposable
         nextDiscovery = 0;
     }
 
-    public void Dispose() { timer.Dispose(); Clear(); }
+    private void OnMotion(IntPtr hwnd, uint type)
+    {
+        TintSurface surface;
+        if (!surfaces.TryGetValue(hwnd, out surface)) return;
+        uint pid; Native.GetWindowThreadProcessId(hwnd, out pid);
+        if (pid != surface.ProcessId) { surface.Hide(); return; }
+        if (type == 0xA) { surface.Moving = true; surface.Hide(); }
+        else if (type == 0xB) surface.Moving = false;
+        else
+        {
+            Rectangle bounds;
+            using (new SurfaceDpiScope())
+                if (!SurfaceWindows.TryBounds(hwnd, out bounds) || bounds != surface.Bounds) surface.Hide();
+        }
+        // Never scan accessibility or paint in a native callback. The next
+        // animation tick reconstructs masks from current owner geometry.
+    }
+
+    public void Dispose() { motion.Dispose(); timer.Dispose(); Clear(); }
 }
 
 internal enum SurfaceKind { None, Word, Excel, PowerPoint, Explorer, Taskbar }
@@ -363,6 +384,7 @@ internal sealed class TintSurface : Form
     internal readonly uint ProcessId;
     internal readonly SurfaceKind Kind;
     internal Bitmap Field;
+    internal bool Moving;
     private Color accent;
     private Rectangle lastBounds;
     private Region lastRegion;
