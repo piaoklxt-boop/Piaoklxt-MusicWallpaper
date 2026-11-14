@@ -19,6 +19,7 @@ internal static class PlaybackAccentRegression
         run("lyrics accent retains confirmed control color when hidden or moved", Missing);
         run("lyrics accent applies confirmed control color without a visible frame", AppliedColor);
         run("lyrics accent restores only its identified control color across sessions", Cache);
+        run("lyrics accent ignores fade frames until a changed control color stabilizes", StableColor);
         run("lyrics accent failed capture immediately discards the previous sample", FailedSample);
     }
     private static void Assert(bool value,string message) {if(!value)throw new Exception(message);}
@@ -118,6 +119,18 @@ internal static class PlaybackAccentRegression
             Assert(PlaybackAccent.LastSampledColor.IsEmpty,"Unrelated control cache was accepted.");
         }
         finally { PlaybackAccent.ConfigureCache(null);if(File.Exists(path))File.Delete(path);if(Directory.Exists(Path.GetDirectoryName(path)))Directory.Delete(Path.GetDirectoryName(path)); }
+    }
+    private static void StableColor()
+    {
+        PlaybackAccent.ConfigureCache(null);PlaybackAccent.RememberColor(Color.CornflowerBlue);
+        DateTime now=DateTime.UtcNow;Color c;
+        Assert(!PlaybackAccent.TryConfirmColor(Color.LightBlue,now,out c),"One fade frame changed the control color.");
+        Assert(!PlaybackAccent.TryConfirmColor(Color.AliceBlue,now.AddSeconds(1),out c),"Changing fade colors were accepted.");
+        Assert(PlaybackAccent.LastSampledColor.ToArgb()==Color.CornflowerBlue.ToArgb(),"A fading control overwrote the confirmed color.");
+        Assert(!PlaybackAccent.TryConfirmColor(Color.Green,now.AddSeconds(2),out c),"A single recolor was accepted.");
+        Assert(!PlaybackAccent.TryConfirmColor(Color.Green,now.AddSeconds(3),out c),"Recolor accepted before stability interval.");
+        Assert(PlaybackAccent.TryConfirmColor(Color.Green,now.AddSeconds(4),out c) && c.ToArgb()==Color.Green.ToArgb(),"Stable new control color was ignored.");
+        PlaybackAccent.ConfigureCache(null);
     }
     private static void FailedSample()
     {

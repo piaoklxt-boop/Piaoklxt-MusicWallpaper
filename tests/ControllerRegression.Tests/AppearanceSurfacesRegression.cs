@@ -308,6 +308,7 @@ internal static class AppearanceSurfacesRegression
         using (var frame = new Bitmap(source.Width, source.Height))
         using (var graphics = Graphics.FromImage(frame))
         {
+            PlaybackAccent.ConfigureCache(null);
             var oldButton = new Rectangle(source.Left + 100, source.Top + 100, 40, 40);
             var activeButton = new Rectangle(source.Left + 200, source.Top + 500, 40, 40);
             var snapshot = new AccessibleTreeSnapshot(new[] {
@@ -325,6 +326,9 @@ internal static class AppearanceSurfacesRegression
                 "Artwork or the white glyph replaced the actual button body color.");
             graphics.Clear(Color.White);
             graphics.FillRectangle(Brushes.Black, new Rectangle(212, 510, 8, 20));
+            Color pending;
+            PlaybackAccent.TryConfirmColor(Color.Black, DateTime.UtcNow.AddSeconds(-3), out pending);
+            PlaybackAccent.TryConfirmColor(Color.Black, DateTime.UtcNow.AddSeconds(-1.5), out pending);
             Assert(Sampler.TrySampleFrame(frame, button, out color, out light) && color.ToArgb() == Color.Black.ToArgb(),
                 "A dark playback icon was replaced by its light background.");
             graphics.Clear(Color.White);

@@ -492,6 +492,7 @@ namespace QQMusicWallpaperThemeSync
             Rectangle verified;
             if (!QQMusicWallpaper.PlaybackAccent.TryGetBounds(bitmap.Size, out verified) || verified != button ||
                 !QQMusicWallpaper.PlaybackAccent.TryColor(bitmap, button, out result)) return false;
+            if (!QQMusicWallpaper.PlaybackAccent.TryConfirmColor(result, DateTime.UtcNow, out result)) return false;
             // Brightness is still a property of the whole picture, independent of accent selection.
             double lightSum = 0; int lightCount = 0;
             for (int y = bitmap.Height / 10; y < bitmap.Height * 8 / 10; y += 24)
@@ -502,7 +503,6 @@ namespace QQMusicWallpaperThemeSync
                     lightCount++;
                 }
             meanLight = lightCount == 0 ? 0.5 : lightSum / lightCount;
-            QQMusicWallpaper.PlaybackAccent.RememberColor(result);
             return true;
         }
     }

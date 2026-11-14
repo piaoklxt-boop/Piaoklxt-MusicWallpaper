@@ -19,7 +19,7 @@ internal static class PlaybackAccent
     private static volatile Target target;
     private static volatile int sampledColor;
     internal static Color LastSampledColor { get { int value = sampledColor; return value == 0 ? Color.Empty : Color.FromArgb(value); } }
-    private const string ControlIdentity = "QQMusic.Lyrics.PlayPause.v1";
+    private const string ControlIdentity = "QQMusic.Lyrics.PlayPause.v2";
     private static readonly object colorGate = new object();
     private static string cachePath;
 
@@ -43,11 +43,39 @@ internal static class PlaybackAccent
         }
     }
 
+    private static int pendingColor, pendingCount;
+    private static DateTime pendingSince, pendingLast;
+
+    // A fade/hover transition is not a new control style. Corroborate a changed
+    // color in three fresh frames over at least two seconds before replacing it.
+    internal static bool TryConfirmColor(Color observed, DateTime now, out Color confirmed)
+    {
+        lock (colorGate)
+        {
+            confirmed = LastSampledColor;
+            if (observed.IsEmpty) return false;
+            if (confirmed.IsEmpty) { RememberColor(observed); confirmed = observed; return true; }
+            if (ColorDistance(confirmed, observed) <= 9) { pendingColor = 0; pendingCount = 0; return true; }
+            if (pendingColor == 0 || ColorDistance(Color.FromArgb(pendingColor), observed) > 9 ||
+                now < pendingLast || now - pendingLast > TimeSpan.FromSeconds(3))
+            {
+                pendingColor = observed.ToArgb(); pendingCount = 1; pendingSince = pendingLast = now;
+                return false;
+            }
+            pendingLast = now; pendingCount++;
+            if (pendingCount < 3 || now - pendingSince < TimeSpan.FromSeconds(2)) return false;
+            RememberColor(observed); confirmed = observed; pendingColor = 0; pendingCount = 0;
+            return true;
+        }
+    }
+    private static int ColorDistance(Color a, Color b)
+    { return Math.Abs(a.R-b.R) + Math.Abs(a.G-b.G) + Math.Abs(a.B-b.B); }
+
     internal static void ConfigureCache(string path)
     {
         lock (colorGate)
         {
-            cachePath = path; sampledColor = 0; target = null;
+            cachePath = path; sampledColor = 0; target = null; pendingColor = 0; pendingCount = 0;
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
             try
             {
