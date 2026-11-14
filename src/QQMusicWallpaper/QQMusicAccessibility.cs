@@ -86,6 +86,10 @@ internal static class QQMusicAccessibility
                 IAccessible parent = node;
                 for (int depth = 0; parent != null && !ReferenceEquals(parent, root) && depth < MaxDepth; depth++)
                 {
+                    // QQ Music exposes a different COM wrapper for its parent window.
+                    // The nearest native Window is the source boundary; ancestors
+                    // above it belong to the desktop embedding host.
+                    if (Convert.ToInt32(parent.get_accRole(0)) == 9) break;
                     if ((Convert.ToInt64(parent.get_accState(0)) & StateInvisible) != 0) return null;
                     parent = parent.accParent as IAccessible;
                 }

@@ -39,6 +39,7 @@ internal static class SoftwareSpaceRegression
         var snapshot = QQMusicAccessibility.CaptureSnapshot(root);
         Assert(snapshot.TryGetControlTargetAtPoint(new Point(25,25), out var target) && target.ReadLiveBounds != null,
             "Actual accessible control reference was discarded.");
+        var nativeSource = new Node("Source window wrapper", AccessibleRole.Window, Rectangle.Empty, page) { Parent = host };
         Assert(target.ReadLiveBounds() == new Rectangle(20,20,40,30), "Live control bounds unavailable.");
         page.Flags = AccessibleStates.Invisible;
         Assert(!target.ReadLiveBounds().HasValue, "Hidden QQ Music page was ignored.");
