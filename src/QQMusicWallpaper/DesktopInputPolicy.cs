@@ -85,7 +85,7 @@ internal readonly struct AccessibleTimeLabel
 internal readonly struct AccessibleNodeSnapshot
 {
 	public AccessibleNodeSnapshot(string name, string description, string action,
-		int role, bool hidden, int depth, Rectangle bounds, bool unavailable = false, bool readOnly = false, Func<Rectangle?> readLiveBounds = null)
+		int role, bool hidden, int depth, Rectangle bounds, bool unavailable = false, bool readOnly = false)
 	{
 		Name = name ?? "";
 		Description = description ?? "";
@@ -96,7 +96,6 @@ internal readonly struct AccessibleNodeSnapshot
 		Bounds = bounds;
 		Unavailable = unavailable;
 		ReadOnly = readOnly;
-        ReadLiveBounds = readLiveBounds;
 	}
 
 	public string Name { get; }
@@ -105,7 +104,6 @@ internal readonly struct AccessibleNodeSnapshot
 	public int Role { get; }
 	public bool Unavailable { get; }
 	public bool ReadOnly { get; }
-    public Func<Rectangle?> ReadLiveBounds { get; }
 	public bool Hidden { get; }
 	public int Depth { get; }
 	public Rectangle Bounds { get; }

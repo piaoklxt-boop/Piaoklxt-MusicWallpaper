@@ -1,7 +1,6 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -16,7 +15,6 @@ namespace QQMusicWallpaperThemeSync
         private static Mutex instance;
         internal static void RunWorker(string root)
         {
-            Sampler.Standalone = true;
             bool created;
             instance = new Mutex(true, @"Local\PiaoklxtMusicWallpaper.ThemeSync", out created);
             if (!created) return;
@@ -30,7 +28,6 @@ namespace QQMusicWallpaperThemeSync
         [STAThread]
         private static void Main(string[] args)
         {
-            Sampler.Standalone = true;
             string root = AppDomain.CurrentDomain.BaseDirectory;
             if (args.Length > 0 && args[0] == "--sample")
             {
@@ -131,7 +128,7 @@ namespace QQMusicWallpaperThemeSync
             brightnessItem = menu.MenuItems.Add("同时切换系统明暗", (s, e) => ToggleBrightness());
             shellItem = menu.MenuItems.Add("任务栏与开始菜单跟随系统强调色", (s, e) => ToggleShell());
             appsItem = menu.MenuItems.Add("文件资源管理器等使用深色", (s, e) => ToggleApps());
-            menu.MenuItems.Add("立即取色", (s, e) => UpdateColor(true));
+            menu.MenuItems.Add("立即读取歌词配色", (s, e) => UpdateColor(true));
             if (showTray && hostMenu == null)
             {
                 menu.MenuItems.Add("退出主题同步", (s, e) =>
@@ -370,8 +367,7 @@ namespace QQMusicWallpaperThemeSync
                     bool playback = QQMusicWallpaper.ThemePaletteColors.UsesPlaybackColor(palette);
                     var sample = playback || matchBrightness ? samples.Read() : null;
                     Color color = playback ? (sample == null ? QQMusicWallpaper.PlaybackAccent.LastSampledColor : sample.Color) : QQMusicWallpaper.ThemePaletteColors.Resolve(palette, 0);
-                    // Auto brightness samples the music picture even for a
-                    // fixed/rainbow palette. Palette brightness is not a signal.
+                    // Follow native lyric foreground contrast independently of accent color.
                     bool? light = matchBrightness ? (sample == null ? lastLight : (bool?)(sample.Brightness > .61)) : null;
                     if (color.IsEmpty)
                     {
@@ -379,7 +375,7 @@ namespace QQMusicWallpaperThemeSync
                         return true;
                     }
                     int delta = lastColor.IsEmpty ? 1000 : Math.Abs(color.R - lastColor.R) + Math.Abs(color.G - lastColor.G) + Math.Abs(color.B - lastColor.B);
-                    if (force || delta > 35 || light != lastLight)
+                    if (force || (playback ? delta > 0 : delta > 35) || light != lastLight)
                     {
                         applyRegistry(color, light, colorizeShell, darkApps);
                         lastColor = color;
@@ -432,77 +428,14 @@ namespace QQMusicWallpaperThemeSync
 
     internal static class Sampler
     {
-        internal static bool Standalone;
-        private delegate bool EnumProc(IntPtr hwnd, IntPtr data);
-        [DllImport("user32.dll")] private static extern bool EnumWindows(EnumProc callback, IntPtr data);
-        [DllImport("user32.dll")] private static extern bool EnumChildWindows(IntPtr parent, EnumProc callback, IntPtr data);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] private static extern int GetClassName(IntPtr hwnd, StringBuilder name, int count);
-        [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
-        [DllImport("user32.dll")] private static extern bool GetClientRect(IntPtr hwnd, out Rect rect);
-        [DllImport("user32.dll")] private static extern bool PrintWindow(IntPtr hwnd, IntPtr dc, uint flags);
-        [StructLayout(LayoutKind.Sequential)] private struct Rect { public int L, T, R, B; }
-
-        private static IntPtr FindRenderer()
-        {
-            IntPtr found = IntPtr.Zero;
-            EnumProc visit = (hwnd, data) =>
-            {
-                var name = new StringBuilder(128);
-                GetClassName(hwnd, name, name.Capacity);
-                if (name.ToString() != "Win32CaptureSample.SampleWindow") return true;
-                uint pid; GetWindowThreadProcessId(hwnd, out pid);
-                if (QQMusicWallpaper.ProcessIdentity.Matches(pid, "Piaoklxt-MusicWallpaperRenderer")) found = hwnd;
-                return true;
-            };
-            EnumWindows((hwnd, data) => { visit(hwnd, data); EnumChildWindows(hwnd, visit, IntPtr.Zero); return true; }, IntPtr.Zero);
-            return found;
-        }
-
+        internal static Func<QQMusicWallpaper.ThemeSample> ReadProperties = QQMusicWallpaper.QQMusicThemeProperties.ReadCurrent;
         public static bool TrySample(out Color result, out double meanLight)
         {
-            return TrySampleControl(out result, out meanLight);
-        }
-
-        private static bool TrySampleControl(out Color result, out double meanLight)
-        {
             result = Color.Empty; meanLight = 0;
-            IntPtr hwnd = FindRenderer();
-            Rect rect;
-            if (hwnd == IntPtr.Zero || !GetClientRect(hwnd, out rect)) return false;
-            int w = rect.R - rect.L, h = rect.B - rect.T;
-            if (w < 300 || h < 200) return false;
-            if (Standalone) QQMusicWallpaper.PlaybackAccent.RefreshStandalone();
-            Rectangle button;
-            if (!QQMusicWallpaper.PlaybackAccent.TryGetBounds(new Size(w, h), out button)) return false;
-            using (var bitmap = new Bitmap(w, h, PixelFormat.Format32bppArgb))
-            using (var graphics = Graphics.FromImage(bitmap))
-            {
-                IntPtr dc = graphics.GetHdc();
-                bool ok;
-                try { ok = PrintWindow(hwnd, dc, 2); }
-                finally { graphics.ReleaseHdc(dc); }
-                if (!ok) return false;
-                return TrySampleFrame(bitmap, button, out result, out meanLight);
-            }
-        }
-
-        internal static bool TrySampleFrame(Bitmap bitmap, Rectangle button, out Color result, out double meanLight)
-        {
-            result = Color.Empty; meanLight = 0;
-            Rectangle verified;
-            if (!QQMusicWallpaper.PlaybackAccent.TryGetBounds(bitmap.Size, out verified) || verified != button ||
-                !QQMusicWallpaper.PlaybackAccent.TryColor(bitmap, button, out result)) return false;
-            if (!QQMusicWallpaper.PlaybackAccent.TryConfirmColor(result, DateTime.UtcNow, out result)) return false;
-            // Brightness is still a property of the whole picture, independent of accent selection.
-            double lightSum = 0; int lightCount = 0;
-            for (int y = bitmap.Height / 10; y < bitmap.Height * 8 / 10; y += 24)
-                for (int x = 0; x < bitmap.Width; x += 24)
-                {
-                    Color pixel = bitmap.GetPixel(x, y);
-                    lightSum += (pixel.R * 0.2126 + pixel.G * 0.7152 + pixel.B * 0.0722) / 255;
-                    lightCount++;
-                }
-            meanLight = lightCount == 0 ? 0.5 : lightSum / lightCount;
+            var sample = ReadProperties();
+            if (sample == null || sample.Color.IsEmpty) return false;
+            result = sample.Color; meanLight = sample.Brightness;
+            QQMusicWallpaper.PlaybackAccent.RememberColor(result);
             return true;
         }
     }

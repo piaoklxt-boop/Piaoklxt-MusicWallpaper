@@ -134,19 +134,10 @@ internal static class AppearanceSurfacesRegression
             }
             return true;
         }, IntPtr.Zero);
-        if (source == IntPtr.Zero) { Console.WriteLine("Playback source unavailable"); return 2; }
-        Native.RECT sourceRect; Native.GetWindowRect(source, out sourceRect);
-        Rectangle sourceBounds = Rectangle.FromLTRB(sourceRect.Left, sourceRect.Top, sourceRect.Right, sourceRect.Bottom);
-        PlaybackAccent.Publish(source, sourceBounds, QQMusicAccessibility.CaptureSnapshot(source));
-        Rectangle button;
-        Console.WriteLine("Playback sourceSize=" + sourceBounds.Size + " semanticButton=" + PlaybackAccent.TryGetBounds(sourceBounds.Size, out button) + " localButton=" + button);
         Color accent; double light;
         bool sampled = Sampler.TrySample(out accent, out light);
-        Console.WriteLine("Playback rendererSample=" + sampled + " accent=" + (sampled ? ColorTranslator.ToHtml(accent) : "unavailable"));
-        IntPtr renderer = (IntPtr)typeof(Sampler).GetMethod("FindRenderer", BindingFlags.NonPublic | BindingFlags.Static).Invoke(null, null);
-        Native.RECT client;
-        Console.WriteLine("Renderer found=" + (renderer != IntPtr.Zero) + " clientAvailable=" + Native.GetClientRect(renderer, out client) +
-            " size=" + (client.Right - client.Left) + "x" + (client.Bottom - client.Top));
+        Console.WriteLine("Native lyric property=" + QQMusicThemeProperties.PropertyName + " available=" + sampled +
+            " accent=" + (sampled ? ColorTranslator.ToHtml(accent) : "unavailable") + " themeLight=" + light);
         return sampled ? 0 : 2;
     }
 
@@ -157,7 +148,6 @@ internal static class AppearanceSurfacesRegression
         run("appearance display surface follows owner without activating or receiving input", WindowLifecycle);
         run("appearance manager removes surfaces on pause and app disable", ManagerLifecycle);
         run("appearance flowing palettes contain moving spatial colors", Flow);
-        run("appearance sampler follows the active playback button and rejects moved sources", ButtonSample);
     }
 
     private static void Assert(bool value, string message) { if (!value) throw new Exception(message); }
@@ -302,39 +292,4 @@ internal static class AppearanceSurfacesRegression
     }
     private static int Distance(Color a, Color b) { return Math.Abs(a.R-b.R) + Math.Abs(a.G-b.G) + Math.Abs(a.B-b.B); }
 
-    private static void ButtonSample()
-    {
-        using (var source = Owner())
-        using (var frame = new Bitmap(source.Width, source.Height))
-        using (var graphics = Graphics.FromImage(frame))
-        {
-            PlaybackAccent.ConfigureCache(null);
-            var oldButton = new Rectangle(source.Left + 100, source.Top + 100, 40, 40);
-            var activeButton = new Rectangle(source.Left + 200, source.Top + 500, 40, 40);
-            var snapshot = new AccessibleTreeSnapshot(new[] {
-                new AccessibleNodeSnapshot("收起歌曲详情页", "收起歌曲详情页", "", 43, false, 2, oldButton),
-                new AccessibleNodeSnapshot("播放", "播放", "", 43, true, 2, oldButton),
-                new AccessibleNodeSnapshot("暂停", "暂停", "", 43, false, 2, activeButton, readLiveBounds:()=>activeButton) });
-            PlaybackAccent.Publish(source.Handle, source.Bounds, snapshot);
-            graphics.Clear(Color.OrangeRed);
-            graphics.FillRectangle(Brushes.LimeGreen, new Rectangle(200, 500, 40, 40));
-            graphics.FillRectangle(Brushes.White, new Rectangle(210, 510, 5, 20));
-            Rectangle button;
-            Assert(PlaybackAccent.TryGetBounds(frame.Size, out button) && button == new Rectangle(200, 500, 40, 40), "Sampling selected a stale player bar.");
-            Color color; double light;
-            Assert(Sampler.TrySampleFrame(frame, button, out color, out light) && Distance(color, Color.LimeGreen) < 10,
-                "Artwork or the white glyph replaced the actual button body color.");
-            graphics.Clear(Color.White);
-            graphics.FillRectangle(Brushes.Black, new Rectangle(212, 510, 8, 20));
-            Color pending;
-            PlaybackAccent.TryConfirmColor(Color.Black, DateTime.UtcNow.AddSeconds(-3), out pending);
-            PlaybackAccent.TryConfirmColor(Color.Black, DateTime.UtcNow.AddSeconds(-1.5), out pending);
-            Assert(Sampler.TrySampleFrame(frame, button, out color, out light) && color.ToArgb() == Color.Black.ToArgb(),
-                "A dark playback icon was replaced by its light background.");
-            graphics.Clear(Color.White);
-            Assert(!Sampler.TrySampleFrame(frame, button, out color, out light), "An empty control region sampled the surrounding skin.");
-            source.Left += 10;
-            Assert(!Sampler.TrySampleFrame(frame, button, out color, out light), "Moved source accepted stale button coordinates.");
-        }
-    }
 }

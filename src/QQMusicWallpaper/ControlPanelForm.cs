@@ -8,7 +8,7 @@ internal sealed class ControlPanelForm : Form
 {
     private readonly CheckBox follow = Check("FollowArtwork", "启用主题配色与流动效果");
     private readonly CheckBox shell = Check("ColorizeShell", "任务栏和开始菜单使用系统强调色");
-    private readonly CheckBox brightness = Check("MatchBrightness", "根据音乐画面亮度自动切换应用明暗");
+    private readonly CheckBox brightness = Check("MatchBrightness", "跟随歌词页原生配色自动切换应用明暗");
     private readonly CheckBox dark = Check("DarkApps", "应用默认使用深色模式");
     private readonly CheckBox word = Check("Word", "Word");
     private readonly CheckBox excel = Check("Excel", "Excel");
@@ -247,7 +247,7 @@ internal sealed class ControlPanelForm : Form
         preview.Invalidate();
         paletteHint.Text = palette.SelectedIndex == 5 ? "同一基色从深色到浅色流动，亮度范围 30%–100%；基色取播放／暂停键。" :
             palette.SelectedIndex >= 2 ? "多种高饱和颜色同时游动、交融，伴随明显的深浅变化。" :
-            palette.SelectedIndex == 0 ? "使用当前播放／暂停键颜色；预览随最近一次取色更新。" : "固定的灰蓝配色；亚克力透明度在各应用页设置。";
+            palette.SelectedIndex == 0 ? "读取歌词页共享高亮色属性；播放键隐藏时仍可更新。" : "固定的灰蓝配色；亚克力透明度在各应用页设置。";
     }
     private void MarkDirty()
     {
