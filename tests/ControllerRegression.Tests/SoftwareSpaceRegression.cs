@@ -33,11 +33,16 @@ internal static class SoftwareSpaceRegression
     private static void PlaybackReference()
     {
         var button = new Node("暂停", AccessibleRole.PushButton, new Rectangle(20,20,40,30));
-        var root = new Node("Root", AccessibleRole.Pane, Rectangle.Empty, button);
+        var page = new Node("Page", AccessibleRole.Pane, Rectangle.Empty, button);
+        var root = new Node("Root", AccessibleRole.Pane, Rectangle.Empty, page);
+        var host = new Node("Desktop host", AccessibleRole.Window, Rectangle.Empty, root) { Flags = AccessibleStates.Invisible };
         var snapshot = QQMusicAccessibility.CaptureSnapshot(root);
         Assert(snapshot.TryGetControlTargetAtPoint(new Point(25,25), out var target) && target.ReadLiveBounds != null,
             "Actual accessible control reference was discarded.");
         Assert(target.ReadLiveBounds() == new Rectangle(20,20,40,30), "Live control bounds unavailable.");
+        page.Flags = AccessibleStates.Invisible;
+        Assert(!target.ReadLiveBounds().HasValue, "Hidden QQ Music page was ignored.");
+        page.Flags = 0;
         button.Flags = AccessibleStates.Invisible;
         Assert(!target.ReadLiveBounds().HasValue, "Hidden live control still exposed its cached rectangle.");
         button.Flags = 0; button.Caption = "Replacement";
@@ -120,13 +125,14 @@ internal static class SoftwareSpaceRegression
         internal string Caption;
         internal string Value;
         internal AccessibleStates Flags;
+        internal Node Parent;
         private readonly AccessibleRole role;
         private readonly Rectangle bounds;
         private readonly Node[] children;
         internal Node(string caption, AccessibleRole role, Rectangle bounds, params Node[] children)
-        { Caption = caption; this.role = role; this.bounds = bounds; this.children = children; }
+        { Caption = caption; this.role = role; this.bounds = bounds; this.children = children; foreach(var child in children) child.Parent = this; }
         public int accChildCount { get { return children.Length; } }
-        public object accParent { get { return null; } }
+        public object accParent { get { return Parent; } }
         public object accFocus { get { return null; } }
         public object accSelection { get { return null; } }
         public object get_accChild(object child) { return children[Convert.ToInt32(child) - 1]; }

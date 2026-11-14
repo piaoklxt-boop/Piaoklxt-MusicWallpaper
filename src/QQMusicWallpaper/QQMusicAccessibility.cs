@@ -67,13 +67,13 @@ internal static class QQMusicAccessibility
     {
         var nodes = new List<AccessibleNodeSnapshot>();
         int visited = 0;
-        CaptureNodes(accessible, 0, ref visited, nodes);
+        CaptureNodes(accessible, 0, ref visited, nodes, accessible);
         return new AccessibleTreeSnapshot(nodes.ToArray());
     }
 
     // Retain the actual accessible control, not only a historical rectangle.
     // Queried only by the bounded background appearance capture worker.
-    private static Func<Rectangle?> PlaybackBoundsReader(IAccessible node, object id, int role, string name)
+    private static Func<Rectangle?> PlaybackBoundsReader(IAccessible node, object id, int role, string name, IAccessible root)
     {
         if ((role != 43 && role != 44) || !IsPlaybackName(name)) return null;
         return () =>
@@ -84,7 +84,7 @@ internal static class QQMusicAccessibility
                 if ((liveRole != 43 && liveRole != 44) || !IsPlaybackName(node.get_accName(id))) return null;
                 if ((Convert.ToInt64(node.get_accState(id)) & (StateInvisible | 1)) != 0) return null;
                 IAccessible parent = node;
-                for (int depth = 0; parent != null && depth < MaxDepth; depth++)
+                for (int depth = 0; parent != null && !ReferenceEquals(parent, root) && depth < MaxDepth; depth++)
                 {
                     if ((Convert.ToInt64(parent.get_accState(0)) & StateInvisible) != 0) return null;
                     parent = parent.accParent as IAccessible;
@@ -158,7 +158,7 @@ internal static class QQMusicAccessibility
     }
 
 	private static void CaptureNodes(IAccessible accessible, int depth,
-		ref int visited, List<AccessibleNodeSnapshot> nodes)
+		ref int visited, List<AccessibleNodeSnapshot> nodes, IAccessible root)
 	{
 		if (depth > MaxDepth || visited >= MaxNodes) return;
 		int childCount;
@@ -202,14 +202,14 @@ internal static class QQMusicAccessibility
 				{
 					nodes.Add(new AccessibleNodeSnapshot(name, description, action, role,
 						(state & StateInvisible) != 0, depth, bounds, (state & 1) != 0, (state & 64) != 0,
-                        PlaybackBoundsReader(node, childId, role, name)));
+                        PlaybackBoundsReader(node, childId, role, name, root)));
 				}
 			}
 			// Inactive QQ pages keep visible-looking descendants. Do not publish
 			// them through an invisible ancestor. Offscreen alone is expected while
 			// the source is parked; the owning surface bounds perform clipping.
 			if (child != null && (state & StateInvisible) == 0)
-				CaptureNodes(child, depth + 1, ref visited, nodes);
+				CaptureNodes(child, depth + 1, ref visited, nodes, root);
 		}
 	}
 
