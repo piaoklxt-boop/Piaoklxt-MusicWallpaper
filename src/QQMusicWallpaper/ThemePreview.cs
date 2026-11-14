@@ -21,7 +21,7 @@ internal sealed class ThemePreview : Control
         timer.Tick += delegate
         {
             Color sampled = PlaybackAccent.LastSampledColor;
-            if (Visible && (ThemePaletteColors.IsFlowing(Palette) || (!sampled.IsEmpty && sampled != paintedAccent))) Invalidate();
+            if (Visible && (ThemePaletteColors.IsFlowing(Palette) || sampled != paintedAccent)) Invalidate();
         };
         VisibleChanged += delegate { timer.Enabled = Visible; };
     }
@@ -29,8 +29,14 @@ internal sealed class ThemePreview : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         Color accent = PlaybackAccent.LastSampledColor;
-        if (accent.IsEmpty) accent = Color.FromArgb(35, 180, 150);
         paintedAccent = accent;
+        if (accent.IsEmpty && ThemePaletteColors.UsesPlaybackColor(Palette))
+        {
+            e.Graphics.Clear(SystemColors.Control);
+            TextRenderer.DrawText(e.Graphics, "等待歌词页播放键取色", Font, ClientRectangle,
+                SystemColors.ControlText, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            return;
+        }
         if (ThemePaletteColors.IsFlowing(Palette))
         {
             using (var bitmap = ThemePaletteColors.CreateField(Palette, clock.Elapsed.TotalSeconds, accent, Tone))

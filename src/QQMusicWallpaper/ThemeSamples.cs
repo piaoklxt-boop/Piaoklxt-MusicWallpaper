@@ -47,7 +47,7 @@ internal sealed class ThemeSamples : IDisposable
         {
             lock (gate)
             {
-                if (!disposed && epoch == generation && result != null) { latest = result; captured = DateTime.UtcNow; }
+                if (!disposed && epoch == generation) { latest = result; captured = result == null ? DateTime.MinValue : DateTime.UtcNow; }
                 busy = false;
             }
         }

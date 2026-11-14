@@ -41,8 +41,8 @@ internal static class PlaybackAccent
     internal static void Publish(IntPtr window, Rectangle source, AccessibleTreeSnapshot snapshot)
     {
         AccessibleNodeSnapshot node;
-        if (!snapshot.TryGetBottommostControlTarget(source, out node, "播放", "暂停", "Play", "Pause") ||
-            !source.Contains(node.Bounds)) { target = null; return; }
+        if (!snapshot.TryGetLyricsPlaybackTarget(source, out node) ||
+            !source.Contains(node.Bounds)) { target = null; RememberColor(Color.Empty); return; }
         Native.GetWindowThreadProcessId(window, out uint pid);
         var button = node.Bounds;
         button.Offset(-source.Left, -source.Top);
@@ -66,38 +66,46 @@ internal static class PlaybackAccent
     {
         color = Color.Empty;
         if (bounds.Width < 2 || bounds.Height < 2 || !new Rectangle(Point.Empty, frame.Size).Contains(bounds)) return false;
-        var counts = new int[4096];
-        var red = new long[4096]; var green = new long[4096]; var blue = new long[4096];
-        // Estimate the surrounding skin outside the semantic button, so a black
-        // icon on a white skin is as valid as a bright icon on a dark skin.
-        var border = new int[4096]; int background = -1, borderBest = 0;
-        for (int i = 1; i <= 3; i++)
+        Rectangle region = Rectangle.Intersect(new Rectangle(Point.Empty, frame.Size),
+            Rectangle.Inflate(bounds, 1, 1));
+        if (region == bounds) return false;
+        int width = region.Width, height = region.Height, total = width * height;
+        var pixels = new Color[total]; var background = new bool[total];
+        var queue = new System.Collections.Generic.Queue<int>();
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++)
         {
-            int x = bounds.Left + bounds.Width * i / 4, y = bounds.Top + bounds.Height * i / 4;
-            foreach (Point point in new[] { new Point(bounds.Left - 1, y), new Point(bounds.Right, y),
-                new Point(x, bounds.Top - 1), new Point(x, bounds.Bottom) })
+            int i = y * width + x;
+            pixels[i] = frame.GetPixel(region.Left + x, region.Top + y);
+            if (!bounds.Contains(region.Left + x, region.Top + y))
+            { background[i] = true; queue.Enqueue(i); }
+        }
+        // Start outside the semantic control, so a filled button touching its
+        // own bounds is retained. Remove connected artwork, including gradients.
+        // The actual button body wins by area; a transparent icon keeps its glyph.
+        while (queue.Count > 0)
+        {
+            int i = queue.Dequeue(), x = i % width, y = i / width;
+            foreach (int next in new[] { x > 0 ? i - 1 : -1, x + 1 < width ? i + 1 : -1,
+                y > 0 ? i - width : -1, y + 1 < height ? i + width : -1 })
             {
-                if (point.X < 0 || point.Y < 0 || point.X >= frame.Width || point.Y >= frame.Height) continue;
-                int bin = Bin(frame.GetPixel(point.X, point.Y));
-                if (++border[bin] > borderBest) { borderBest = border[bin]; background = bin; }
+                if (next < 0 || background[next]) continue;
+                Color a = pixels[i], b = pixels[next];
+                if (Math.Abs(a.R-b.R) + Math.Abs(a.G-b.G) + Math.Abs(a.B-b.B) > 45) continue;
+                background[next] = true; queue.Enqueue(next);
             }
         }
-        if (borderBest < 6) background = -1;
+        var counts = new int[4096];
+        var red = new long[4096]; var green = new long[4096]; var blue = new long[4096];
         int best = 0;
-        // Quantized foreground clusters reject antialiased edge noise. Saturated
-        // button pixels outrank neutral surroundings; neutral icons remain valid.
-        for (int y = bounds.Top; y < bounds.Bottom; y++)
-            for (int x = bounds.Left; x < bounds.Right; x++)
-            {
-                Color p = frame.GetPixel(x, y);
-                int max = Math.Max(p.R, Math.Max(p.G, p.B)), min = Math.Min(p.R, Math.Min(p.G, p.B));
-                int bin = Bin(p);
-                if (bin == background) continue;
-                int weight = max - min > 35 ? 12 : 2;
-                counts[bin] += weight; red[bin] += p.R * weight; green[bin] += p.G * weight; blue[bin] += p.B * weight;
-                if (counts[bin] > counts[best]) best = bin;
-            }
-        if (counts[best] < 4) return false;
+        for (int i = 0; i < total; i++)
+        {
+            if (background[i] || pixels[i].A < 240 ||
+                !bounds.Contains(region.Left + i % width, region.Top + i / width)) continue;
+            Color p = pixels[i]; int bin = Bin(p);
+            counts[bin]++; red[bin] += p.R; green[bin] += p.G; blue[bin] += p.B;
+            if (counts[bin] > counts[best]) best = bin;
+        }
+        if (counts[best] < Math.Max(4, bounds.Width * bounds.Height / 100)) return false;
         color = Color.FromArgb((int)(red[best] / counts[best]), (int)(green[best] / counts[best]), (int)(blue[best] / counts[best]));
         return true;
     }

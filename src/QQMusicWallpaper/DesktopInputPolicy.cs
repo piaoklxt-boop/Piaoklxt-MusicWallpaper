@@ -336,6 +336,31 @@ internal sealed class AccessibleTreeSnapshot
 		return found;
 	}
 
+    // Only a visible lyrics-page control is a valid accent source. Location
+    // translates its live bounds into the captured frame; it never ranks buttons.
+    public bool TryGetLyricsPlaybackTarget(Rectangle source, out AccessibleNodeSnapshot target)
+    {
+        target = default;
+        bool lyrics = false, found = false;
+        foreach (var node in nodes)
+        {
+            string identity = string.IsNullOrWhiteSpace(node.Description) ? node.Name : node.Description;
+            if (!node.Hidden && !node.Unavailable && node.Role == 43 &&
+                identity == "收起歌曲详情页" && source.IntersectsWith(node.Bounds)) lyrics = true;
+        }
+        if (!lyrics) return false;
+        foreach (var node in nodes)
+        {
+            if (node.Hidden || node.Unavailable || (node.Role != 43 && node.Role != 44) ||
+                node.Bounds.Width < 2 || node.Bounds.Height < 2 || !source.Contains(node.Bounds)) continue;
+            string identity = string.IsNullOrWhiteSpace(node.Description) ? node.Name : node.Description;
+            if (identity != "播放" && identity != "暂停" && identity != "Play" && identity != "Pause") continue;
+            if (found && node.Bounds != target.Bounds) return false;
+            target = node; found = true;
+        }
+        return found;
+    }
+
 	public bool TryGetBottommostControlTarget(Rectangle preferredArea,
 		out AccessibleNodeSnapshot target, params string[] descriptions)
 	{

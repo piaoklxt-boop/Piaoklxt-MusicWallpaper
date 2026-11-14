@@ -311,7 +311,8 @@ internal static class AppearanceSurfacesRegression
             var oldButton = new Rectangle(source.Left + 100, source.Top + 100, 40, 40);
             var activeButton = new Rectangle(source.Left + 200, source.Top + 500, 40, 40);
             var snapshot = new AccessibleTreeSnapshot(new[] {
-                new AccessibleNodeSnapshot("播放", "播放", "", 43, false, 2, oldButton),
+                new AccessibleNodeSnapshot("收起歌曲详情页", "收起歌曲详情页", "", 43, false, 2, oldButton),
+                new AccessibleNodeSnapshot("播放", "播放", "", 43, true, 2, oldButton),
                 new AccessibleNodeSnapshot("暂停", "暂停", "", 43, false, 2, activeButton) });
             PlaybackAccent.Publish(source.Handle, source.Bounds, snapshot);
             graphics.Clear(Color.OrangeRed);
@@ -321,7 +322,7 @@ internal static class AppearanceSurfacesRegression
             Assert(PlaybackAccent.TryGetBounds(frame.Size, out button) && button == new Rectangle(200, 500, 40, 40), "Sampling selected a stale player bar.");
             Color color; double light;
             Assert(Sampler.TrySampleFrame(frame, button, out color, out light) && Distance(color, Color.LimeGreen) < 10,
-                "Artwork or the white glyph replaced the button fill color.");
+                "Artwork or the white glyph replaced the actual button body color.");
             graphics.Clear(Color.White);
             graphics.FillRectangle(Brushes.Black, new Rectangle(212, 510, 8, 20));
             Assert(Sampler.TrySampleFrame(frame, button, out color, out light) && color.ToArgb() == Color.Black.ToArgb(),
