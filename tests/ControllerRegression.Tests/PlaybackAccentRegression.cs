@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Reflection;
 using System.Threading;
 using System.Diagnostics;
@@ -15,8 +16,9 @@ internal static class PlaybackAccentRegression
     {
         run("lyrics accent rejects ordinary-page and ambiguous playback controls", Identity);
         run("lyrics accent extracts button body or transparent glyph without artwork", Foreground);
-        run("lyrics accent invalidates the preview when its control disappears", Missing);
-        run("lyrics accent missing sample removes the stale applied color", AppliedColor);
+        run("lyrics accent retains confirmed control color when hidden or moved", Missing);
+        run("lyrics accent applies confirmed control color without a visible frame", AppliedColor);
+        run("lyrics accent restores only its identified control color across sessions", Cache);
         run("lyrics accent failed capture immediately discards the previous sample", FailedSample);
     }
     private static void Assert(bool value,string message) {if(!value)throw new Exception(message);}
@@ -68,7 +70,15 @@ internal static class PlaybackAccentRegression
         {
             PlaybackAccent.RememberColor(Color.Red);
             PlaybackAccent.Publish(source.Handle,source.Bounds,new AccessibleTreeSnapshot(null));
-            Assert(PlaybackAccent.LastSampledColor.IsEmpty,"Preview retained an unrelated previous color after the control disappeared.");
+            Assert(PlaybackAccent.LastSampledColor.ToArgb()==Color.Red.ToArgb(),"Hiding the control erased its confirmed color.");
+            Rectangle bounds;
+            Assert(!PlaybackAccent.TryGetBounds(source.Size,out bounds),"Missing control reused a stale pixel region.");
+            var play=Node("暂停",new Rectangle(source.Left+300,source.Top+450,40,30));
+            var lyrics=Node("收起歌曲详情页",new Rectangle(source.Left+20,source.Top+20,30,30));
+            PlaybackAccent.Publish(source.Handle,source.Bounds,new AccessibleTreeSnapshot(new[]{lyrics,play}));
+            source.Left+=20;
+            Assert(!PlaybackAccent.TryGetBounds(source.Size,out bounds) && PlaybackAccent.LastSampledColor.ToArgb()==Color.Red.ToArgb(),
+                "Movement must invalidate geometry without erasing control color.");
         }
     }
     private static void AppliedColor()
@@ -81,11 +91,33 @@ internal static class PlaybackAccentRegression
             set("updateLock",new object());set("enabled",true);set("wallpaperSessionActive",true);
             set("samples",samples);set("surfaces",surfaces);set("explorerPreferences",new ExplorerAppearanceSettings());
             set("officePreferences",new ThemePreferences());set("palette",ThemePalette.Artwork);set("lastColor",Color.Red);
-            set("applyRegistry",new Action<Color,bool?,bool,bool>((c,l,s,d)=>{throw new Exception("Stale color was applied again");}));
+            PlaybackAccent.RememberColor(Color.CornflowerBlue);
+            Color applied=Color.Empty;
+            set("applyRegistry",new Action<Color,bool?,bool,bool>((c,l,s,d)=>{applied=c;}));
             bool updated=(bool)typeof(ThemeContext).GetMethod("UpdateColor",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(context,new object[]{false});
             var color=(Color)typeof(ThemeContext).GetField("lastColor",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(context);
-            Assert(updated && color.IsEmpty,"Missing lyrics sample retained an applied stale accent.");
+            Assert(updated && color.ToArgb()==Color.CornflowerBlue.ToArgb() && applied.ToArgb()==Color.CornflowerBlue.ToArgb(),"Hidden control lost its confirmed color or reused a different palette.");
         }
+    }
+    private static void Cache()
+    {
+        string path=Path.Combine(Path.GetTempPath(),"lyrics-accent-"+Guid.NewGuid().ToString("N"),"color.ini");
+        try
+        {
+            PlaybackAccent.ConfigureCache(path);
+            Assert(PlaybackAccent.LastSampledColor.IsEmpty,"Invented an initial color.");
+            PlaybackAccent.RememberColor(Color.CornflowerBlue);
+            PlaybackAccent.RememberColor(Color.Empty);
+            PlaybackAccent.ConfigureCache(path);
+            Assert(PlaybackAccent.LastSampledColor.ToArgb()==Color.CornflowerBlue.ToArgb(),"Restart lost the confirmed control color.");
+            PlaybackAccent.RememberColor(Color.Green);
+            PlaybackAccent.ConfigureCache(path);
+            Assert(PlaybackAccent.LastSampledColor.ToArgb()==Color.Green.ToArgb(),"Confirmed recoloring was not persisted.");
+            File.WriteAllText(path,"Control=Another.Control\nColor=FF0000\n");
+            PlaybackAccent.ConfigureCache(path);
+            Assert(PlaybackAccent.LastSampledColor.IsEmpty,"Unrelated control cache was accepted.");
+        }
+        finally { PlaybackAccent.ConfigureCache(null);if(File.Exists(path))File.Delete(path);if(Directory.Exists(Path.GetDirectoryName(path)))Directory.Delete(Path.GetDirectoryName(path)); }
     }
     private static void FailedSample()
     {

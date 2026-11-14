@@ -33,7 +33,7 @@ internal sealed class ThemePreview : Control
         if (accent.IsEmpty && ThemePaletteColors.UsesPlaybackColor(Palette))
         {
             e.Graphics.Clear(SystemColors.Control);
-            TextRenderer.DrawText(e.Graphics, "等待歌词页播放键取色", Font, ClientRectangle,
+            TextRenderer.DrawText(e.Graphics, "等待首次识别歌词页播放键", Font, ClientRectangle,
                 SystemColors.ControlText, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
             return;
         }

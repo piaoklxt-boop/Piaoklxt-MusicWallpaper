@@ -115,6 +115,7 @@ namespace QQMusicWallpaperThemeSync
             var dispatcherHandle = dispatcher.Handle;
             settingsPath = Path.Combine(root, "theme-sync.ini");
             backupPath = Path.Combine(root, "theme-original.reg.txt");
+            QQMusicWallpaper.PlaybackAccent.ConfigureCache(Path.Combine(root, "lyrics-playback-color.ini"));
             ReadSettings();
             explorerPreferences = QQMusicWallpaper.ExplorerAppearanceSettings.Load(QQMusicWallpaper.ExplorerAppearanceSettings.SettingsPath);
             surfaces = new QQMusicWallpaper.AppearanceSurfaces();
@@ -368,22 +369,12 @@ namespace QQMusicWallpaperThemeSync
                 {
                     bool playback = QQMusicWallpaper.ThemePaletteColors.UsesPlaybackColor(palette);
                     var sample = playback || matchBrightness ? samples.Read() : null;
-                    Color color = playback ? (sample == null ? Color.Empty : sample.Color) : QQMusicWallpaper.ThemePaletteColors.Resolve(palette, 0);
+                    Color color = playback ? (sample == null ? QQMusicWallpaper.PlaybackAccent.LastSampledColor : sample.Color) : QQMusicWallpaper.ThemePaletteColors.Resolve(palette, 0);
                     // Auto brightness samples the music picture even for a
                     // fixed/rainbow palette. Palette brightness is not a signal.
                     bool? light = matchBrightness ? (sample == null ? lastLight : (bool?)(sample.Brightness > .61)) : null;
                     if (color.IsEmpty)
                     {
-                        if (playback)
-                        {
-                            QQMusicWallpaper.PlaybackAccent.RememberColor(Color.Empty);
-                            if (!lastColor.IsEmpty)
-                            {
-                                ThemeRegistry.RestoreAccent(backupPath);
-                                lastColor = Color.Empty;
-                                RefreshSurfaces();
-                            }
-                        }
                         if (force) ThemeRegistry.ApplyBrightness(light, darkApps);
                         return true;
                     }
@@ -469,9 +460,7 @@ namespace QQMusicWallpaperThemeSync
 
         public static bool TrySample(out Color result, out double meanLight)
         {
-            bool sampled = TrySampleControl(out result, out meanLight);
-            if (!sampled) QQMusicWallpaper.PlaybackAccent.RememberColor(Color.Empty);
-            return sampled;
+            return TrySampleControl(out result, out meanLight);
         }
 
         private static bool TrySampleControl(out Color result, out double meanLight)
@@ -573,31 +562,6 @@ namespace QQMusicWallpaperThemeSync
             }
             Notify();
             File.Delete(path);
-        }
-
-        // A missing lyrics control must not leave an unrelated sampled accent.
-        // Restore only colors; application brightness remains independently owned.
-        internal static void RestoreAccent(string path)
-        {
-            if (!File.Exists(path)) return;
-            bool changed = false;
-            foreach (string line in File.ReadAllLines(path))
-            {
-                string[] fields = line.Split('|');
-                if (fields.Length != 3 || (fields[0] != Dwm && fields[0] != Explorer &&
-                    !(fields[0] == Desktop && fields[1] == "AutoColorization"))) continue;
-                using (var key = Registry.CurrentUser.CreateSubKey(fields[0]))
-                {
-                    if (fields[2] == "missing")
-                    {
-                        if (key.GetValue(fields[1]) != null) { key.DeleteValue(fields[1], false); changed = true; }
-                    }
-                    else if (fields[2].StartsWith("base64:"))
-                        changed |= Write(key, fields[1], Convert.FromBase64String(fields[2].Substring(7)), RegistryValueKind.Binary);
-                    else changed |= Write(key, fields[1], unchecked((int)UInt32.Parse(fields[2])), RegistryValueKind.DWord);
-                }
-            }
-            if (changed) Notify();
         }
 
         public static void RestoreApplicationBrightness(string path)
