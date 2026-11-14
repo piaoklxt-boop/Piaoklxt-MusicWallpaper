@@ -129,7 +129,97 @@ bool TestCallbackDrain() {
     return entered && drained && stopped;
 }
 
+int observedAccent = -1, accentWrites = 0;
+unsigned observedColor;
+SetExplorerComposition_t forwardComposition = nullptr;
+bool compositionAccepted = true;
+BOOL WINAPI ObserveAccent(HWND window, ExplorerCompositionData* data) {
+    auto policy = static_cast<ExplorerAccentPolicy*>(data->data);
+    observedAccent = policy->state;
+    observedColor = static_cast<unsigned>(policy->color);
+    accentWrites++;
+    BOOL accepted = forwardComposition ? forwardComposition(window, data) : TRUE;
+    compositionAccepted &= accepted != FALSE;
+    return accepted;
+}
+bool TestDragBackdrop() {
+    HWND window = CreateWindowW(L"STATIC",L"",WS_OVERLAPPEDWINDOW,-18000,-18000,400,300,nullptr,nullptr,nullptr,nullptr);
+    HWND other = CreateWindowW(L"STATIC",L"",WS_OVERLAPPEDWINDOW,-18000,-18000,400,300,nullptr,nullptr,nullptr,nullptr);
+    if (!window || !other) return false;
+    auto original = SetExplorerComposition; SetExplorerComposition = ObserveAccent;
+    DwmSetWindowAttribute_Original = DwmSetWindowAttribute;
+    auto saved = g_settings;
+    g_settings.acrylicGray = 33; g_settings.acrylicOpacity = 25;
+    SetAccentBlurBehind(window,true);
+    bool idle = observedAccent == 4 && observedColor == 0x19212121;
+    SendMessageW(window,WM_ENTERSIZEMOVE,0,0);
+    bool moving = observedAccent == 2 && observedColor == 0xFF212121;
+    int before = accentWrites;
+    SendMessageW(window,WM_ENTERSIZEMOVE,0,0);
+    RECT rectangle{0,0,400,300};
+    for(int i=0;i<200;i++) {
+        SendMessageW(window,WM_MOVING,0,reinterpret_cast<LPARAM>(&rectangle));
+        SendMessageW(window,WM_SIZING,WMSZ_RIGHT,reinterpret_cast<LPARAM>(&rectangle));
+    }
+    bool stable = accentWrites == before;
+    SetAccentBlurBehind(other,true);
+    bool isolated = observedAccent == 4;
+    SendMessageW(window,WM_EXITSIZEMOVE,0,0);
+    bool restored = observedAccent == 4 && observedColor == 0x19212121;
+    before = accentWrites;
+    SendMessageW(window,WM_EXITSIZEMOVE,0,0);
+    restored &= accentWrites == before;
+    SendMessageW(window,WM_ENTERSIZEMOVE,0,0);
+    g_settings.acrylicGray = 80; g_settings.acrylicOpacity = 100;
+    SetAccentBlurBehind(window,true);
+    bool changed = observedAccent == 2 && observedColor == 0xFF505050;
+    SendMessageW(window,WM_EXITSIZEMOVE,0,0);
+    changed &= observedAccent == 4 && observedColor == 0x64505050;
+    SendMessageW(window,WM_ENTERSIZEMOVE,0,0);
+    SetAccentBlurBehind(window,false);
+    before = accentWrites;
+    SendMessageW(window,WM_EXITSIZEMOVE,0,0);
+    bool removed = !GetPropW(window,kExplorerDragState) && accentWrites == before;
+    SetAccentBlurBehind(window,true);
+    bool reenabled = observedAccent == 4;
+    SendMessageW(window,WM_ENTERSIZEMOVE,0,0);
+    before = accentWrites;
+    DestroyWindow(window);
+    bool destroyed = accentWrites == before;
+    SetAccentBlurBehind(other,false); DestroyWindow(other);
+    g_settings = saved; SetExplorerComposition = original;
+    printf("Drag backdrop: idle=%d movingSolid=%d noPerMoveWrites=%d restored=%d isolated=%d settings=%d disabled=%d reenabled=%d destroyed=%d\n",
+        idle,moving,stable,restored,isolated,changed,removed,reenabled,destroyed);
+    return idle && moving && stable && restored && isolated && changed && removed && reenabled && destroyed;
+}
+
+// Exercise the actual compositor API on an owned offscreen window. WCA 19
+// cannot be queried back on every Windows build, so check native acceptance
+// while observing the production requests. This does not measure Explorer FPS.
+bool TestCompositorDragState() {
+    HWND window = CreateWindowW(L"STATIC", L"", WS_OVERLAPPEDWINDOW,
+        -18000,-18000,400,300,nullptr,nullptr,nullptr,nullptr);
+    if (!window || !SetExplorerComposition) return false;
+    auto original = SetExplorerComposition;
+    forwardComposition = original; compositionAccepted = true;
+    SetExplorerComposition = ObserveAccent;
+    SetAccentBlurBehind(window, true);
+    int idle = observedAccent;
+    SendMessageW(window, WM_ENTERSIZEMOVE, 0, 0);
+    int moving = observedAccent;
+    SendMessageW(window, WM_EXITSIZEMOVE, 0, 0);
+    int restored = observedAccent;
+    SetAccentBlurBehind(window, false);
+    DestroyWindow(window);
+    SetExplorerComposition = original; forwardComposition = nullptr;
+    printf("Native compositor accepted=%d; requested idle=%d moving=%d restored=%d\n",
+        compositionAccepted, idle, moving, restored);
+    return compositionAccepted && idle == 4 && moving == 2 && restored == 4;
+}
+
 int main() {
+    if (!TestDragBackdrop()) return 9;
+    if (!TestCompositorDragState()) return 10;
     if (!TestCallbackDrain()) return 8;
     puts("Unadvised callback barrier drains an owned message-only UI thread before release. PASS");
     auto parse = [](std::wstring_view value) {

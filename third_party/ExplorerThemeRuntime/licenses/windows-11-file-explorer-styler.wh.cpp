@@ -2,7 +2,7 @@
 // @id              windows-11-file-explorer-styler
 // @name            Windows 11 File Explorer Styler
 // @description     Customize the File Explorer with themes contributed by others or create your own
-// @version         1.7-piaoklxt.10
+// @version         1.7-piaoklxt.11
 // @author          m417z
 // @github          https://github.com/m417z
 // @twitter         https://twitter.com/m417z
@@ -11392,8 +11392,52 @@ HRESULT WINAPI DrawThemeBackgroundEx_Hook(HTHEME hTheme,
                                           pOptions);
 }
 
-// Based on the Translucent Windows mod.
+struct ExplorerAccentPolicy { int state, flags, color, animation; };
+struct ExplorerCompositionData { DWORD attribute; PVOID data; SIZE_T size; };
+using SetExplorerComposition_t = BOOL(WINAPI*)(HWND, ExplorerCompositionData*);
+auto SetExplorerComposition = reinterpret_cast<SetExplorerComposition_t>(
+    GetProcAddress(GetModuleHandleW(L"user32.dll"), "SetWindowCompositionAttribute"));
+
+// Change the composition policy only at modal move/size boundaries. A solid
+// tint avoids sampling and blurring the moving desktop behind Explorer.
+void SetExplorerDragAccent(HWND window, bool moving) {
+    if (!SetExplorerComposition) return;
+    ExplorerAccentPolicy policy = {
+        .state = moving ? 2 : 4, // TRANSPARENTGRADIENT / ACRYLICBLURBEHIND
+        .color = static_cast<int>(((moving ? 255u : static_cast<unsigned>(g_settings.acrylicOpacity)) << 24) |
+            (g_settings.acrylicGray * 0x010101u)),
+    };
+    ExplorerCompositionData data = {19, &policy, sizeof(policy)};
+    SetExplorerComposition(window, &data);
+}
+
+constexpr WCHAR kExplorerDragState[] = L"piaoklxt_drag_state-" WH_MOD_ID;
+
+LRESULT CALLBACK ExplorerDragSubclass(HWND window, UINT message, WPARAM wParam,
+                                     LPARAM lParam, UINT_PTR id, DWORD_PTR moving) {
+    if (message == WM_ENTERSIZEMOVE && !moving) {
+        SetWindowSubclass(window, ExplorerDragSubclass, id, 1);
+        SetPropW(window, kExplorerDragState, reinterpret_cast<HANDLE>(2));
+        SetExplorerDragAccent(window, true);
+    } else if (message == WM_EXITSIZEMOVE && moving) {
+        SetWindowSubclass(window, ExplorerDragSubclass, id, 0);
+        SetPropW(window, kExplorerDragState, reinterpret_cast<HANDLE>(1));
+        SetExplorerDragAccent(window, false);
+    } else if (message == WM_NCDESTROY) {
+        RemovePropW(window, kExplorerDragState);
+        RemoveWindowSubclass(window, ExplorerDragSubclass, id);
+    }
+    return DefSubclassProc(window, message, wParam, lParam);
+}
+
+// Based on the Translucent Windows mod. All callers run on the window's
+// owning UI thread, including settings changes and module teardown.
 void SetAccentBlurBehind(HWND hWnd, bool enable) {
+    if (!enable) {
+        RemovePropW(hWnd, kExplorerDragState);
+        RemoveWindowSubclass(hWnd, ExplorerDragSubclass, 1);
+    }
+
     // Without blur behind, the extended frame is drawn over the accent blur.
     HRGN hRgn = enable ? CreateRectRgn(0, 0, -1, -1) : nullptr;
     DWM_BLURBEHIND blurBehind = {
@@ -11402,9 +11446,7 @@ void SetAccentBlurBehind(HWND hWnd, bool enable) {
         .hRgnBlur = hRgn,
     };
     DwmEnableBlurBehindWindow(hWnd, &blurBehind);
-    if (hRgn) {
-        DeleteObject(hRgn);
-    }
+    if (hRgn) DeleteObject(hRgn);
 
     if (!enable) {
         // Restore the accent policy set by WinUI when the window is created
@@ -11416,46 +11458,15 @@ void SetAccentBlurBehind(HWND hWnd, bool enable) {
         return;
     }
 
-    constexpr int ACCENT_ENABLE_ACRYLICBLURBEHIND = 4;
-
-    struct ACCENT_POLICY {
-        int AccentState;
-        int AccentFlags;
-        int GradientColor;
-        int AnimationId;
-    };
-
-    constexpr DWORD WCA_ACCENT_POLICY = 19;
-
-    struct WINDOWCOMPOSITIONATTRIBDATA {
-        DWORD Attrib;
-        PVOID pvData;
-        SIZE_T cbData;
-    };
-
-    using SetWindowCompositionAttribute_t =
-        BOOL(WINAPI*)(HWND, WINDOWCOMPOSITIONATTRIBDATA*);
-    static auto pSetWindowCompositionAttribute =
-        (SetWindowCompositionAttribute_t)GetProcAddress(
-            GetModuleHandle(L"user32.dll"), "SetWindowCompositionAttribute");
-    if (!pSetWindowCompositionAttribute) {
+    HANDLE state = GetPropW(hWnd, kExplorerDragState);
+    if (!state && (!SetWindowSubclass(hWnd, ExplorerDragSubclass, 1, 0) ||
+                   !SetPropW(hWnd, kExplorerDragState, reinterpret_cast<HANDLE>(1)))) {
+        RemoveWindowSubclass(hWnd, ExplorerDragSubclass, 1);
+        // Without lifecycle notifications, use the inexpensive fallback.
+        SetExplorerDragAccent(hWnd, true);
         return;
     }
-
-    ACCENT_POLICY accentPolicy = {
-        .AccentState = ACCENT_ENABLE_ACRYLICBLURBEHIND,
-        // AABBGGRR.
-        .GradientColor = static_cast<int>((static_cast<unsigned>(g_settings.acrylicOpacity) << 24) |
-            (g_settings.acrylicGray * 0x010101u)),
-    };
-
-    WINDOWCOMPOSITIONATTRIBDATA data = {
-        .Attrib = WCA_ACCENT_POLICY,
-        .pvData = &accentPolicy,
-        .cbData = sizeof(accentPolicy),
-    };
-
-    pSetWindowCompositionAttribute(hWnd, &data);
+    SetExplorerDragAccent(hWnd, state == reinterpret_cast<HANDLE>(2));
 }
 
 void ApplyBackgroundTranslucentEffect(

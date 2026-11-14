@@ -3,7 +3,7 @@
 This directory contains the minimal runtime used by Piaoklxt-MusicWallpaper to style File Explorer. Named address-bar and command-bar XAML controls use the original 38% accent tint flattened over the dark inactive-window base into one opaque color. This avoids both focus-dependent backdrop colors and black backing panels between nested controls. The classic file, navigation and preview panes share an accent-acrylic background with a lighter neutral tint.
 
 - Windhawk 1.7.3 runtime: GNU GPL v3, https://github.com/ramensoftware/windhawk/releases/tag/v1.7.3
-- Windows 11 File Explorer Styler 1.7 by m417z, with the Piaoklxt tint and opaque-header modifications (1.7-piaoklxt.10): GNU GPL v3, https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-11-file-explorer-styler.wh.cpp
+- Windows 11 File Explorer Styler 1.7 by m417z, with the Piaoklxt tint and opaque-header modifications (1.7-piaoklxt.11): GNU GPL v3, https://github.com/ramensoftware/windhawk-mods/blob/main/mods/windows-11-file-explorer-styler.wh.cpp
 - The corresponding Windhawk 1.7.3 source is in `licenses/windhawk-1.7.3-source.zip`.
 - The exact mod source distributed with the binary is in `licenses/windows-11-file-explorer-styler.wh.cpp`.
 - The GPL v3 text is in `licenses/GPL-3.0.txt`.
@@ -31,3 +31,7 @@ Changed active mod configurations are restored on apply failure. Taskbar effects
 ## Callback lifetime
 
 The Explorer fork retains an unadvised XAML watcher until its callback threads have crossed a sent-message barrier, and releases the old diagnostics before reinjection. This backports the callback-lifetime handling from the bundled Taskbar Styler 1.11 source at the pinned commit above. The wait is bounded; a hung callback thread remains a limitation. A background advising thread receives its reference before it can run. Native regressions exercise the barrier against an owned message-only window, as well as the existing paint/parser checks.
+
+## Interactive movement
+
+The Explorer fork switches accent acrylic to an opaque neutral tint during the native modal move/size loop, then restores the current opacity and tint on exit. It changes composition policy only at loop boundaries, not on each position notification. Settings updates preserve the temporary drag state; disabling the effect and destroying the window remove its subclass. Owned-window regressions exercise these lifecycle paths and verify that the actual compositor accepts the policy requests. They do not measure live Explorer frame rate or establish that all possible drag stalls are eliminated.
