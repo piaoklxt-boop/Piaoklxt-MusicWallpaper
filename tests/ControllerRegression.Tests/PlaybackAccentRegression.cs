@@ -20,11 +20,12 @@ internal static class PlaybackAccentRegression
         run("lyrics accent applies confirmed control color without a visible frame", AppliedColor);
         run("lyrics accent restores only its identified control color across sessions", Cache);
         run("lyrics accent ignores fade frames until a changed control color stabilizes", StableColor);
+        run("lyrics accent rejects hidden live control despite a visible cached rectangle", LiveControl);
         run("lyrics accent failed capture immediately discards the previous sample", FailedSample);
     }
     private static void Assert(bool value,string message) {if(!value)throw new Exception(message);}
     private static AccessibleNodeSnapshot Node(string name,Rectangle bounds,bool hidden=false)
-    {return new AccessibleNodeSnapshot(name,name,"press",43,hidden,2,bounds);}
+    {return new AccessibleNodeSnapshot(name,name,"press",43,hidden,2,bounds, readLiveBounds:()=>hidden?(Rectangle?)null:bounds);}
     private static Form Source()
     {var f=new Form{ShowInTaskbar=false,StartPosition=FormStartPosition.Manual,Bounds=new Rectangle(-18000,-18000,800,600)};var h=f.Handle;return f;}
     private static void Identity()
@@ -131,6 +132,26 @@ internal static class PlaybackAccentRegression
         Assert(!PlaybackAccent.TryConfirmColor(Color.Green,now.AddSeconds(3),out c),"Recolor accepted before stability interval.");
         Assert(PlaybackAccent.TryConfirmColor(Color.Green,now.AddSeconds(4),out c) && c.ToArgb()==Color.Green.ToArgb(),"Stable new control color was ignored.");
         PlaybackAccent.ConfigureCache(null);
+    }
+    private static void LiveControl()
+    {
+        using(var source=Source())
+        using(var frame=new Bitmap(source.Width,source.Height))
+        {
+            PlaybackAccent.ConfigureCache(null);PlaybackAccent.RememberColor(Color.Blue);
+            Rectangle? live=new Rectangle(source.Left+300,source.Top+450,40,30);
+            var play=new AccessibleNodeSnapshot("暂停","暂停","press",43,false,2,live.Value,readLiveBounds:()=>live);
+            var lyrics=Node("收起歌曲详情页",new Rectangle(source.Left+20,source.Top+20,30,30));
+            PlaybackAccent.Publish(source.Handle,source.Bounds,new AccessibleTreeSnapshot(new[]{lyrics,play}));
+            Rectangle original;Assert(PlaybackAccent.TryGetBounds(source.Size,out original),"Live control missing.");
+            live=new Rectangle(source.Left+320,source.Top+450,40,30);
+            Color c;double light;
+            Assert(!Sampler.TrySampleFrame(frame,original,out c,out light),"Moving control used stale geometry.");
+            live=null;
+            Assert(!Sampler.TrySampleFrame(frame,original,out c,out light),"Hidden control sampled old coordinates.");
+            Assert(PlaybackAccent.LastSampledColor.ToArgb()==Color.Blue.ToArgb(),"Hidden control erased known color.");
+            PlaybackAccent.ConfigureCache(null);
+        }
     }
     private static void FailedSample()
     {

@@ -314,7 +314,7 @@ internal static class AppearanceSurfacesRegression
             var snapshot = new AccessibleTreeSnapshot(new[] {
                 new AccessibleNodeSnapshot("收起歌曲详情页", "收起歌曲详情页", "", 43, false, 2, oldButton),
                 new AccessibleNodeSnapshot("播放", "播放", "", 43, true, 2, oldButton),
-                new AccessibleNodeSnapshot("暂停", "暂停", "", 43, false, 2, activeButton) });
+                new AccessibleNodeSnapshot("暂停", "暂停", "", 43, false, 2, activeButton, readLiveBounds:()=>activeButton) });
             PlaybackAccent.Publish(source.Handle, source.Bounds, snapshot);
             graphics.Clear(Color.OrangeRed);
             graphics.FillRectangle(Brushes.LimeGreen, new Rectangle(200, 500, 40, 40));

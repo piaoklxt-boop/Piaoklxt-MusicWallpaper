@@ -11,6 +11,7 @@ internal static class SoftwareSpaceRegression
     internal static void Register(Action<string, Action> run)
     {
         run("software space captures deep navigation and excludes inactive descendants", CaptureTree);
+        run("software space playback reference rechecks the actual accessible control", PlaybackReference);
         run("software space text writes verify the live semantic identity", TextValue);
         run("software space taskbar preferences survive save and clamp configuration", TaskbarSettings);
         run("software space palettes remain within the selected hue family", Palettes);
@@ -28,6 +29,21 @@ internal static class SoftwareSpaceRegression
             Assert(!snapshot.TryGetControlTargetAtPoint(new Point(435, 35), out var disabled), "A disabled control owns input.");
             Assert(snapshot.GetInteractiveBounds(new Rectangle(0, 0, 1000, 600), false).Length == 2, "Unexpected active hit areas.");
         }
+    }
+    private static void PlaybackReference()
+    {
+        var button = new Node("暂停", AccessibleRole.PushButton, new Rectangle(20,20,40,30));
+        var root = new Node("Root", AccessibleRole.Pane, Rectangle.Empty, button);
+        var snapshot = QQMusicAccessibility.CaptureSnapshot(root);
+        Assert(snapshot.TryGetControlTargetAtPoint(new Point(25,25), out var target) && target.ReadLiveBounds != null,
+            "Actual accessible control reference was discarded.");
+        Assert(target.ReadLiveBounds() == new Rectangle(20,20,40,30), "Live control bounds unavailable.");
+        button.Flags = AccessibleStates.Invisible;
+        Assert(!target.ReadLiveBounds().HasValue, "Hidden live control still exposed its cached rectangle.");
+        button.Flags = 0; button.Caption = "Replacement";
+        Assert(!target.ReadLiveBounds().HasValue, "Replaced control retained playback identity.");
+        button.Caption = "播放";
+        Assert(target.ReadLiveBounds().HasValue, "Pause/play state change lost the control.");
     }
     private static void TextValue()
     {

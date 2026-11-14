@@ -71,6 +71,33 @@ internal static class QQMusicAccessibility
         return new AccessibleTreeSnapshot(nodes.ToArray());
     }
 
+    // Retain the actual accessible control, not only a historical rectangle.
+    // Queried only by the bounded background appearance capture worker.
+    private static Func<Rectangle?> PlaybackBoundsReader(IAccessible node, object id, int role, string name)
+    {
+        if ((role != 43 && role != 44) || !IsPlaybackName(name)) return null;
+        return () =>
+        {
+            try
+            {
+                int liveRole = Convert.ToInt32(node.get_accRole(id));
+                if ((liveRole != 43 && liveRole != 44) || !IsPlaybackName(node.get_accName(id))) return null;
+                if ((Convert.ToInt64(node.get_accState(id)) & (StateInvisible | 1)) != 0) return null;
+                IAccessible parent = node;
+                for (int depth = 0; parent != null && depth < MaxDepth; depth++)
+                {
+                    if ((Convert.ToInt64(parent.get_accState(0)) & StateInvisible) != 0) return null;
+                    parent = parent.accParent as IAccessible;
+                }
+                node.accLocation(out int x, out int y, out int w, out int h, id);
+                return w > 0 && h > 0 ? (Rectangle?)new Rectangle(x, y, w, h) : null;
+            }
+            catch { return null; }
+        };
+    }
+    private static bool IsPlaybackName(string name)
+    { return name == "播放" || name == "暂停" || name == "Play" || name == "Pause"; }
+
     internal static bool AccessTextValue(IAccessible accessible, AccessibleNodeSnapshot target, bool write, ref string value)
     {
         if (target.Role != 42 || target.ReadOnly || target.Hidden || target.Unavailable) return false;
@@ -174,7 +201,8 @@ internal static class QQMusicAccessibility
 				if (bounds.Width > 0 && bounds.Height > 0)
 				{
 					nodes.Add(new AccessibleNodeSnapshot(name, description, action, role,
-						(state & StateInvisible) != 0, depth, bounds, (state & 1) != 0, (state & 64) != 0));
+						(state & StateInvisible) != 0, depth, bounds, (state & 1) != 0, (state & 64) != 0,
+                        PlaybackBoundsReader(node, childId, role, name)));
 				}
 			}
 			// Inactive QQ pages keep visible-looking descendants. Do not publish

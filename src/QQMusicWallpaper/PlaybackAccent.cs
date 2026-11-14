@@ -15,11 +15,12 @@ internal static class PlaybackAccent
         internal uint Pid;
         internal Rectangle Source, Button;
         internal DateTime Captured;
+        internal Func<Rectangle?> ReadLiveBounds;
     }
     private static volatile Target target;
     private static volatile int sampledColor;
     internal static Color LastSampledColor { get { int value = sampledColor; return value == 0 ? Color.Empty : Color.FromArgb(value); } }
-    private const string ControlIdentity = "QQMusic.Lyrics.PlayPause.v2";
+    private const string ControlIdentity = "QQMusic.Lyrics.PlayPause.v3";
     private static readonly object colorGate = new object();
     private static string cachePath;
 
@@ -121,7 +122,7 @@ internal static class PlaybackAccent
         Native.GetWindowThreadProcessId(window, out uint pid);
         var button = node.Bounds;
         button.Offset(-source.Left, -source.Top);
-        target = new Target { Window = window, Pid = pid, Source = source, Button = button, Captured = DateTime.UtcNow };
+        target = new Target { Window = window, Pid = pid, Source = source, Button = button, Captured = DateTime.UtcNow, ReadLiveBounds = node.ReadLiveBounds };
     }
 
     internal static bool TryGetBounds(Size frame, out Rectangle bounds)
@@ -133,7 +134,12 @@ internal static class PlaybackAccent
         Native.GetWindowThreadProcessId(value.Window, out uint pid);
         if (pid != value.Pid || Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom) != value.Source ||
             frame.Width != value.Source.Width || frame.Height < value.Source.Height) return false;
-        bounds = value.Button;
+        if (value.ReadLiveBounds == null) return false;
+        Rectangle? live;
+        try { live = value.ReadLiveBounds(); } catch { return false; }
+        if (!live.HasValue || !value.Source.Contains(live.Value)) return false;
+        bounds = live.Value;
+        bounds.Offset(-value.Source.Left, -value.Source.Top);
         return new Rectangle(Point.Empty, frame).Contains(bounds);
     }
 
