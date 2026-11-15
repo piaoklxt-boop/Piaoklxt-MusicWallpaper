@@ -21,6 +21,9 @@ internal static class NativeLyricsColorRegression
         run("native lyrics color validates loaded binary identity", ImageIdentity);
         run("native lyrics color production sampler updates without a control or renderer", ProductionSampler);
         run("native lyrics color applies small authoritative property changes", SmallChange);
+        run("native lyrics color survives a fault at every property read and recovers", ReadFaults);
+        run("native lyrics color rejects ambiguous keys and changing map headers", AmbiguousProperties);
+        run("native lyrics color preserves exact values across one thousand recolorings", RecolorStress);
     }
     private static void Assert(bool value,string message) { if(!value)throw new Exception(message); }
     private static void NoImageSampling()
@@ -126,6 +129,67 @@ internal static class NativeLyricsColorRegression
             typeof(ThemeContext).GetMethod("UpdateColor",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(context,new object[]{false});
             Assert(applied.ToArgb()==expected.ToArgb(),"Pixel noise threshold swallowed a real native property change.");
             PlaybackAccent.ConfigureCache(null);
+        }
+    }
+    private static void ReadFaults()
+    {
+        var baseline=new Fixture();Color color;double light;
+        Assert(QQMusicThemeProperties.TryRead(baseline.Read,Fixture.Image,out color,out light),"Baseline property read failed.");
+        int total=baseline.Reads;var previous=Sampler.ReadProperties;
+        PlaybackAccent.ConfigureCache(null);
+        try
+        {
+            for(int failure=1;failure<=total;failure++)
+            {
+                var memory=new Fixture();int at=0,failAt=failure;
+                PlaybackAccent.RememberColor(Color.Green);
+                Sampler.ReadProperties=()=>
+                {
+                    Color c;double l;
+                    return QQMusicThemeProperties.TryRead((address,size)=>
+                    {if(++at==failAt)throw new IOException("Injected read interruption.");return memory.Read(address,size);},
+                        Fixture.Image,out c,out l)?new ThemeSample(c,l):null;
+                };
+                Assert(!Sampler.TrySample(out color,out light),"Partial native read published a color at step "+failure);
+                Assert(PlaybackAccent.LastSampledColor.ToArgb()==Color.Green.ToArgb(),"Read interruption destroyed the durable color.");
+                Assert(Sampler.TrySample(out color,out light) && color.ToArgb()==unchecked((int)0xff123456),"Property reading failed to recover at step "+failure);
+            }
+        }
+        finally {Sampler.ReadProperties=previous;PlaybackAccent.ConfigureCache(null);}
+    }
+    private static void AmbiguousProperties()
+    {
+        for(int failure=0;failure<6;failure++)
+        {
+            var memory=new Fixture();int headers=0;Color color;double light;
+            if(failure==0)memory.Text(0x52010,QQMusicThemeProperties.PropertyName);
+            if(failure==1)memory.Text(0x52010,"SV_Major");
+            if(failure==2)memory.Word(memory.AccentKey+(uint)QQMusicThemeProperties.PropertyName.Length*2,1);
+            if(failure==3)memory.Word(memory.MajorNode+20,0x80000000);
+            Func<uint,int,byte[]> read=(address,size)=>
+            {
+                if(address==Fixture.Service+0x5c && ++headers==2)
+                {
+                    if(failure==4)memory.Word(Fixture.Service+0x60,2);
+                    if(failure==5)memory.Word(0x40004,memory.MajorNode);
+                }
+                return memory.Read(address,size);
+            };
+            Assert(!QQMusicThemeProperties.TryRead(read,Fixture.Image,out color,out light),"Ambiguous or changing property data was accepted: "+failure);
+        }
+    }
+    private static void RecolorStress()
+    {
+        var random=new Random(62015);var memory=new Fixture();Color color;double light;
+        for(int i=0;i<1000;i++)
+        {
+            uint rgb=0xff000000u|(uint)random.Next(0x1000000);
+            memory.Word(memory.AccentNode+20,rgb);memory.Word(memory.MajorNode+20,(i&1)==0?0xff000000u:0xffffffffu);
+            memory.Reads=0;
+            Assert(QQMusicThemeProperties.TryRead(memory.Read,Fixture.Image,out color,out light) &&
+                unchecked((uint)color.ToArgb())==rgb && Math.Abs(light-((i&1)==0?1:0))<1e-9,
+                "Native recoloring coupled the highlight to black/white or lost precision.");
+            Assert(memory.Reads<300,"Repeated native traversal exceeded its read budget.");
         }
     }
     private sealed class Fixture

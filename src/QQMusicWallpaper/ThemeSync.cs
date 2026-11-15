@@ -76,11 +76,7 @@ namespace QQMusicWallpaperThemeSync
         private readonly System.Threading.Timer timer;
         private readonly object updateLock = new object();
         private readonly Action<Color, bool?, bool, bool> applyRegistry = ThemeRegistry.Apply;
-        private readonly QQMusicWallpaper.ThemeSamples samples = new QQMusicWallpaper.ThemeSamples(() =>
-        {
-            Color color; double brightness;
-            return Sampler.TrySample(out color, out brightness) ? new QQMusicWallpaper.ThemeSample(color, brightness) : null;
-        });
+        private readonly QQMusicWallpaper.ThemeSamples samples = Sampler.CreateSamples();
         private bool shuttingDown;
         private bool enabled;
         private bool matchBrightness;
@@ -429,6 +425,11 @@ namespace QQMusicWallpaperThemeSync
     internal static class Sampler
     {
         internal static Func<QQMusicWallpaper.ThemeSample> ReadProperties = QQMusicWallpaper.QQMusicThemeProperties.ReadCurrent;
+        internal static QQMusicWallpaper.ThemeSamples CreateSamples()
+        {
+            return new QQMusicWallpaper.ThemeSamples(() => ReadProperties(),
+                sample => QQMusicWallpaper.PlaybackAccent.AcceptColor(sample.Color));
+        }
         public static bool TrySample(out Color result, out double meanLight)
         {
             result = Color.Empty; meanLight = 0;

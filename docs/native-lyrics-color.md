@@ -28,6 +28,10 @@ The reader opens QQ Music with query/read rights only. It neither writes memory 
 
 ## Validation
 
+Background reads publish to the durable color cache only after the session generation is accepted. Clearing or disposing a session rejects its unfinished reads before they can change either the transient sample or durable color. Acceptance updates memory under the session lock; serialized disk persistence runs outside that lock and saves the latest accepted value. A temporary write failure preserves the in-memory color and retries on the next accepted read even if the color is unchanged. Repeated save failures produce one diagnostic until storage recovers.
+
 `NativeLyricsColorRegression` exercises the production traversal and sampler with native-layout fixtures: independent highlight and text colors, updates without a renderer or visible control, wrong services, missing properties, malformed or cyclic trees, mixed concurrent reads, and loaded-binary mismatches. A structural regression rejects image parameters and window-capture imports in the color path. Live read-only verification establishes compatibility with the installed module pair; it does not establish support for other QQ Music builds.
 
 To support another version, verify its actual named-color setter and consumer bindings, derive its layout and module identities, and validate reads before adding a profile. Never bypass the module checks or add a screenshot fallback.
+
+Additional regressions inject an I/O failure at every step of a valid native traversal and verify recovery through the production sampler, reject duplicate keys and changing map headers, and check exact highlight/brightness independence across 1,000 deterministic recolorings. Session regressions use the production background-sampler factory with a blocked reader to check clear/dispose cancellation, a subsequent valid session, deferred persistence, and nonblocking reads while storage work is delayed. Cache recovery uses a real temporary directory creation failure, then verifies the same color survives reopening the cache.
