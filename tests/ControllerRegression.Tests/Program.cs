@@ -73,6 +73,7 @@ internal static class Program
         PlaybackAccentRegression.Register(Run);
         NativeLyricsColorRegression.Register(Run);
         DirectActionRegression.Register(Run);
+        DesktopPinRegression.Register(Run);
         Run("software space list items support native double clicks", SemanticDoubleClick);
         Run("generic navigation retains its hit snapshot", () => QueuedNavigation(0));
         Run("generic navigation cancels after another click", () => QueuedNavigation(1));

@@ -228,6 +228,8 @@ internal sealed class WallpaperContext : ApplicationContext
 
 	private long originalExStyle;
 
+    private readonly SourceDesktopPinning sourceDesktopPinning = new SourceDesktopPinning();
+
 	private Native.RECT originalRect;
 
 	private Native.WINDOWPLACEMENT originalPlacement;
@@ -703,6 +705,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		}
 		if (embedded)
 		{
+			sourceDesktopPinning?.EnsureAsync(qqWindow, qqWindowProcessId);
 			WatchMouseHook();
 			LogDiagnosticSummary();
 			PruneQQPopupSurfaces();
@@ -847,6 +850,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		originalPlacement.length = Marshal.SizeOf(typeof(Native.WINDOWPLACEMENT));
 		Native.GetWindowPlacement(qqWindow, ref originalPlacement);
 		sourceStateCaptured = true;
+		sourceDesktopPinning?.EnsureAsync(qqWindow, qqWindowProcessId);
 	}
 
 	private bool EmbedQQMusic()
@@ -3319,6 +3323,7 @@ internal sealed class WallpaperContext : ApplicationContext
 		if (!exiting)
 		{
 			exiting = true;
+			sourceDesktopPinning?.Dispose();
 			enabled = false;
 			DisableWallpaper(showQQ: true);
 			if (themeContext != null)
