@@ -20,6 +20,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--direct-media-state")
+        { Console.WriteLine(MediaSessionCommands.ReadPlaybackState()); return 0; }
         if (args.Length > 1 && args[0] == "--ordinary-fixture") return BroadThemeRegression.RunFixture(args[1]);
         if (args.Length > 1 && args[0] == "--installed-theme-fixture") return BroadThemeRegression.CheckInstalled(uint.Parse(args[1]));
         if (args.Length > 0 && args[0] == "--appearance-probe") return AppearanceSurfacesRegression.ProbeLive();
@@ -70,6 +72,7 @@ internal static class Program
         RenderingConflictRegression.Register(Run);
         PlaybackAccentRegression.Register(Run);
         NativeLyricsColorRegression.Register(Run);
+        DirectActionRegression.Register(Run);
         Run("software space list items support native double clicks", SemanticDoubleClick);
         Run("generic navigation retains its hit snapshot", () => QueuedNavigation(0));
         Run("generic navigation cancels after another click", () => QueuedNavigation(1));

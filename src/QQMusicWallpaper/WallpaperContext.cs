@@ -6,6 +6,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 using QQMusicWallpaperThemeSync;
@@ -14,6 +15,8 @@ namespace QQMusicWallpaper;
 
 internal sealed class WallpaperContext : ApplicationContext
 {
+    private readonly Func<IntPtr, AccessibleNodeSnapshot, bool, Func<bool>, DirectActionResult> directControlAction = DirectControlActions.Invoke;
+    private readonly Func<uint, MediaSessionCommand, long, DirectActionResult> directMediaAction = MediaSessionCommands.Execute;
 	private sealed class CommentControlMap
 	{
 		public readonly Rectangle Bounds;
@@ -1778,8 +1781,7 @@ internal sealed class WallpaperContext : ApplicationContext
 					popupSurfaces, out IntPtr popupWindow,
 					out AccessibleNodeSnapshot popupTarget))
 				{
-					bool popupInvoked = PostControlClick(popupWindow,
-						GetControlCenter(popupTarget));
+					bool popupInvoked = TryActivateSemantic(popupWindow, popupTarget, GetControlCenter(popupTarget), false);
 					if (!activeTransientPopupPersistent)
 					{
 						activeTransientToggleDescriptions = new string[0];
@@ -2024,7 +2026,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			actionPoint.Offset(bottomControlCorrectionX, bottomControlCorrectionY);
 			if (!sourceBounds.Contains(actionPoint)) return false;
 		}
-		return PostQQControlClick(actionPoint);
+		return TryActivateSemantic(qqWindow, target, actionPoint, false);
 	}
 
 	private static bool TryGetQQControlTarget(AccessibleTreeSnapshot snapshot,
@@ -2070,7 +2072,7 @@ internal sealed class WallpaperContext : ApplicationContext
 			nextAccessibilityRefresh = DateTime.MinValue;
 			return false;
 		}
-		return PostQQControlClick(launcher.ActionPoint);
+		return TryActivateSemantic(qqWindow, launcher.Target, launcher.ActionPoint, false);
 	}
 
 	private static Point GetControlCenter(AccessibleNodeSnapshot target)
@@ -2104,7 +2106,7 @@ internal sealed class WallpaperContext : ApplicationContext
         bool doubleClick = listLike && lastSemanticSource == qqWindow && sequence == lastSemanticClickSequence + 1 &&
             target.Role == lastSemanticTarget.Role && target.Bounds == lastSemanticTarget.Bounds && target.Name == lastSemanticTarget.Name &&
             (now - lastSemanticClickTicks) * 1000.0 / Stopwatch.Frequency <= SystemInformation.DoubleClickTime;
-        bool delivered = PostControlActivation(qqWindow, GetControlCenter(target), doubleClick);
+        bool delivered = TryActivateSemantic(qqWindow, target, GetControlCenter(target), doubleClick);
         lastSemanticSource = delivered && listLike && !doubleClick ? qqWindow : IntPtr.Zero;
         lastSemanticTarget = target;
         lastSemanticClickTicks = now;
@@ -2115,6 +2117,37 @@ internal sealed class WallpaperContext : ApplicationContext
 	private bool PostControlClick(IntPtr controlWindow, Point screenPoint)
     {
         return PostControlActivation(controlWindow, screenPoint, false);
+    }
+    private bool TryActivateSemantic(IntPtr source, AccessibleNodeSnapshot target, Point fallbackPoint, bool doubleClick)
+    {
+        DirectActionResult result = DirectActionResult.Unsupported;
+        if (directControlAction != null)
+        {
+            if (!Native.GetWindowRect(source, out var original)) return false;
+            Native.GetWindowThreadProcessId(source, out uint owner);
+            long click = Interlocked.Read(ref desktopClickSequence);
+            long deadline = Stopwatch.GetTimestamp() + Stopwatch.Frequency * 300 / 1000;
+            Func<bool> current = () =>
+            {
+                if (Stopwatch.GetTimestamp() > deadline || click != Interlocked.Read(ref desktopClickSequence) ||
+                    !Native.GetWindowRect(source, out var actual)) return false;
+                Native.GetWindowThreadProcessId(source, out uint liveOwner);
+                return owner == liveOwner && original.Left == actual.Left && original.Top == actual.Top &&
+                    original.Right == actual.Right && original.Bottom == actual.Bottom;
+            };
+            var pending = Task.Factory.StartNew(() => current() ? directControlAction(source, target, doubleClick, current) : DirectActionResult.Rejected,
+                CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
+            pending.ContinueWith(faulted => { var observed = faulted.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+            try { result = pending.Wait(350) ? pending.Result : DirectActionResult.Uncertain; }
+            catch (AggregateException) { result = DirectActionResult.Uncertain; }
+            if (result == DirectActionResult.Unsupported && !current()) result = DirectActionResult.Rejected;
+        }
+        OperationLog.Record(OperationKind.DesktopInteraction, "control-api-" + result);
+        if (result == DirectActionResult.Delivered) return true;
+        if (result != DirectActionResult.Unsupported) return false;
+        // Compatibility is explicit and permitted only before a command could
+        // have executed; a timeout/uncertain result must never double-activate.
+        return PostControlActivation(source, fallbackPoint, doubleClick);
     }
     private bool PostControlActivation(IntPtr controlWindow, Point screenPoint, bool doubleClick)
 	{
@@ -2760,8 +2793,22 @@ internal sealed class WallpaperContext : ApplicationContext
 		Point target = new Point(
 			Math.Max(timeline.Left, Math.Min(screenPoint.X, timeline.Right - 1)),
 			timeline.Top + timeline.Height / 2);
-		ForwardPointerToSource(target, work, WmLButtonDown, new IntPtr(1), qqWindow);
-		ForwardPointerToSource(target, work, WmLButtonUp, IntPtr.Zero, qqWindow);
+        IntPtr source = qqWindow;
+        if (!Native.GetWindowRect(source, out var before)) return;
+        long sequence = Interlocked.Read(ref desktopClickSequence);
+        long ticks = playbackTotalSeconds <= 0 ? -1 : (long)Math.Round(
+            (double)(target.X - timeline.Left) / Math.Max(1, timeline.Width - 1) * playbackTotalSeconds * TimeSpan.TicksPerSecond);
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            if (source != qqWindow || sequence != Interlocked.Read(ref desktopClickSequence) ||
+                !TextSourceCurrent(source, before)) return;
+            DirectActionResult result = ticks < 0 ? DirectActionResult.Unsupported : TryMediaAction(MediaSessionCommand.Seek, ticks);
+            OperationLog.Record(OperationKind.DesktopInteraction, "seek-api-" + result);
+            if (result != DirectActionResult.Unsupported || source != qqWindow ||
+                sequence != Interlocked.Read(ref desktopClickSequence) || !TextSourceCurrent(source, before)) return;
+            ForwardPointerToSource(target, work, WmLButtonDown, new IntPtr(1), source);
+            ForwardPointerToSource(target, work, WmLButtonUp, IntPtr.Zero, source);
+        });
 	}
 
 	private void QueueShowProgressPreview(Rectangle timeline, int pointerX)
@@ -2899,6 +2946,29 @@ internal sealed class WallpaperContext : ApplicationContext
 	{
 		ThreadPool.QueueUserWorkItem(delegate
 		{
+			if (ExecuteMediaButton(key)) nextAccessibilityRefresh = DateTime.MinValue;
+        });
+    }
+    private DirectActionResult TryMediaAction(MediaSessionCommand command, long ticks)
+    {
+        if (directMediaAction == null) return DirectActionResult.Unsupported;
+        if (!IsCurrentSourceWindow()) return DirectActionResult.Rejected;
+        return directMediaAction(qqWindowProcessId, command, ticks);
+    }
+    private bool ExecuteMediaButton(byte key)
+    {
+        MediaSessionCommand command;
+        switch (key)
+        {
+            case 179: command = MediaSessionCommand.Toggle; break;
+            case 177: command = MediaSessionCommand.Previous; break;
+            case 176: command = MediaSessionCommand.Next; break;
+            default: return false;
+        }
+        DirectActionResult result = TryMediaAction(command, 0);
+        OperationLog.Record(OperationKind.DesktopInteraction, "media-api-" + command + "-" + result);
+        if (result == DirectActionResult.Delivered) return true;
+        if (result != DirectActionResult.Unsupported) return false;
 			bool invoked = false;
 			switch (key)
 			{
@@ -2913,8 +2983,7 @@ internal sealed class WallpaperContext : ApplicationContext
 				invoked = TryInvokeQQControl("下一首", "下一曲", "Next", "Next track");
 				break;
 			}
-			if (invoked) nextAccessibilityRefresh = DateTime.MinValue;
-		});
+			return invoked;
 	}
 
 	private bool IsQQMusicWindow(IntPtr hwnd)
