@@ -1,5 +1,13 @@
 # Explorer theme runtime
 
+The runtime also includes the GPL Better file sizes mod `1.6-piaoklxt.1`, with
+an asynchronous, low-priority folder-size cache. Rebuild it using
+`scripts/build-folder-sizes.ps1`; its exact source and adapter header are under
+`licenses`. Only this new versioned DLL is added when the runtime is already
+active. Its enable switch updates the module in place without unloading XAML
+styling or restarting Explorer. See `docs/desktop-pinning-and-folder-sizes.md`
+in the development repository for calculation bounds.
+
 This directory contains the minimal runtime used by Piaoklxt-MusicWallpaper to style File Explorer. Named address-bar and command-bar XAML controls use the original 38% accent tint flattened over the dark inactive-window base into one opaque color. This avoids both focus-dependent backdrop colors and black backing panels between nested controls. The classic file, navigation and preview panes share an accent-acrylic background with a lighter neutral tint.
 
 - Windhawk 1.7.3 runtime: GNU GPL v3, https://github.com/ramensoftware/windhawk/releases/tag/v1.7.3

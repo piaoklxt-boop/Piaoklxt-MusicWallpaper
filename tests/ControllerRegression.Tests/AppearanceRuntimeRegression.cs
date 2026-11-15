@@ -13,6 +13,8 @@ internal static class AppearanceRuntimeRegression
     internal static void Register(Action<string, Action> run)
     {
         run("appearance live apply never restarts the runtime or rewrites the other module", LiveApply);
+        run("appearance folder size toggle is independent and preserves XAML modules", FolderSizes);
+        run("appearance folder size failure rolls back its own module", FolderRollback);
         run("appearance renderer-only changes do not notify XAML", RendererOnly);
         run("appearance revisions remain distinct across rapid applies and rollback", RapidApply);
         run("appearance desktop loss rolls back without saving or restarting", Rollback);
@@ -52,7 +54,7 @@ internal static class AppearanceRuntimeRegression
             string seed = Path.Combine(runtime, "Seed/Engine/Mods");
             Directory.CreateDirectory(seed);
             File.WriteAllText(Path.Combine(runtime, "windhawk.exe"), "test boundary");
-            foreach (string module in new[] { "windows-11-file-explorer-styler.ini", "windows-11-taskbar-styler.ini" })
+            foreach (string module in new[] { "windows-11-file-explorer-styler.ini", "windows-11-taskbar-styler.ini", "explorer-details-better-file-sizes.ini" })
                 File.WriteAllText(Path.Combine(seed, module), "[Mod]\nLibraryFileName=fixture.dll\nSettingsChangeTime=1\nDisabled=0\n[Settings]\n", Encoding.Unicode);
             Explorer = Path.Combine(data, "Engine/Mods/windows-11-file-explorer-styler.ini");
             Taskbar = Path.Combine(data, "Engine/Mods/windows-11-taskbar-styler.ini");
@@ -91,6 +93,35 @@ internal static class AppearanceRuntimeRegression
                 "Renderer-only settings notified native XAML extensions.");
             Assert(f.Host.Checks == 1 && f.Host.Starts == 1 && f.Host.Stops == 0, "Renderer-only change touched runtime lifecycle.");
             Assert(ExplorerAppearanceSettings.Load(f.Saved).ExtendBottom, "Renderer settings were not saved.");
+        }
+    }
+    private static void FolderSizes()
+    {
+        using(var f=new Fixture())
+        {
+            string explorer=File.ReadAllText(f.Explorer),taskbar=File.ReadAllText(f.Taskbar);
+            string folder=Path.Combine(Path.GetDirectoryName(f.Explorer),"explorer-details-better-file-sizes.ini");
+            int revision=Revision(folder);
+            var next=f.Settings.Copy();next.FolderSizes=false;
+            using(var panel=new ControlPanelForm(new ThemePreferences(),next))
+                Assert(!panel.ReadExplorer().FolderSizes,"Panel lost the folder-size toggle.");
+            f.Runtime.ApplyCore(next,true);
+            Assert(!ExplorerAppearanceSettings.Load(f.Saved).FolderSizes && Revision(folder)==revision+1,"Folder setting was not persisted.");
+            Assert(File.ReadAllText(folder).Contains("enabled=0"),"Folder calculation was not disabled.");
+            Assert(File.ReadAllText(f.Explorer)==explorer && File.ReadAllText(f.Taskbar)==taskbar,"Folder size change rewrote XAML modules.");
+            Assert(f.Host.Stops==0 && f.Host.Starts==1,"Folder toggle restarted runtime.");
+        }
+    }
+    private static void FolderRollback()
+    {
+        using(var f=new Fixture())
+        {
+            string folder=Path.Combine(Path.GetDirectoryName(f.Explorer),"explorer-details-better-file-sizes.ini");
+            string before=File.ReadAllText(f.Explorer),saved=File.ReadAllText(f.Saved);
+            var next=f.Settings.Copy();next.FolderSizes=false;f.Host.Fail=true;bool failed=false;
+            try{f.Runtime.ApplyCore(next,true);}catch(InvalidOperationException){failed=true;}
+            Assert(failed && File.ReadAllText(folder).Contains("enabled=1"),"Folder rollback lost active configuration.");
+            Assert(File.ReadAllText(f.Explorer)==before && File.ReadAllText(f.Saved)==saved,"Folder rollback touched another setting.");
         }
     }
 

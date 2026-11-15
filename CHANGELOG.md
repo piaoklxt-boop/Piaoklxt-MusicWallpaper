@@ -1,5 +1,10 @@
 # Changelog
 
+### Local candidate additions
+
+- Keep the selected QQ Music source visible across virtual desktops automatically, including newly created source windows after QQ Music restarts. Reuse one renderer and preserve existing manual pins.
+- Show folder sizes directly in Explorer's Size column through the bundled Windhawk component. Calculate local fixed-drive folders on one low-priority background worker, cache complete results, and update the view when ready. The Explorer control panel has an independent switch; network paths and incomplete scans remain blank.
+
 ## Unreleased
 
 ### 新增与改进

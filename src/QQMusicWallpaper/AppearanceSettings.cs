@@ -65,6 +65,7 @@ internal enum ExplorerHeaderStyle { ThemeColor, Neutral, Acrylic }
 
 internal sealed class ExplorerAppearanceSettings
 {
+    public bool FolderSizes = true;
     public bool Enabled = true;
     public int Transparency = 30;
     public int TintGray = 61;
@@ -95,6 +96,7 @@ internal sealed class ExplorerAppearanceSettings
         value.TaskbarTransparency = AppearanceIni.ReadInt(text, "TaskbarTransparency", 65, 0, 100);
         value.ExtendBottom = AppearanceIni.ReadInt(text, "ExtendBottom", 0, 0, 1) == 1;
         value.EdgeDepth = AppearanceIni.ReadInt(text, "EdgeDepth", 1, 1, 100);
+        value.FolderSizes = AppearanceIni.ReadInt(text, "FolderSizes", 1, 0, 1) == 1;
         return value;
     }
 
@@ -105,7 +107,8 @@ internal sealed class ExplorerAppearanceSettings
             "\nFileAreaAcrylic=" + (FileAreaAcrylic ? 1 : 0) +
             "\nHeaderStyle=" + (int)HeaderStyle + "\nHeaderTint=" + HeaderTint +
             "\nTaskbarAcrylic=" + (TaskbarAcrylic ? 1 : 0) + "\nTaskbarTransparency=" + TaskbarTransparency +
-            "\nExtendBottom=" + (ExtendBottom ? 1 : 0) + "\nEdgeDepth=" + EdgeDepth + "\n";
+            "\nExtendBottom=" + (ExtendBottom ? 1 : 0) + "\nEdgeDepth=" + EdgeDepth +
+            "\nFolderSizes=" + (FolderSizes ? 1 : 0) + "\n";
         AppearanceIni.WriteAtomic(path, text, Encoding.UTF8);
     }
 
@@ -115,7 +118,7 @@ internal sealed class ExplorerAppearanceSettings
             TintGray == other.TintGray && SidebarAcrylic == other.SidebarAcrylic && FileAreaAcrylic == other.FileAreaAcrylic &&
             HeaderStyle == other.HeaderStyle && HeaderTint == other.HeaderTint &&
             TaskbarAcrylic == other.TaskbarAcrylic && TaskbarTransparency == other.TaskbarTransparency &&
-            ExtendBottom == other.ExtendBottom && EdgeDepth == other.EdgeDepth;
+            ExtendBottom == other.ExtendBottom && EdgeDepth == other.EdgeDepth && FolderSizes == other.FolderSizes;
     }
 
     internal ExplorerAppearanceSettings Copy() { return (ExplorerAppearanceSettings)MemberwiseClone(); }

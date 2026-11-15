@@ -19,6 +19,8 @@ internal sealed class ExplorerThemeRuntime : IDisposable
 	private readonly string settingsPath;
 	private readonly IAppearanceRuntimeHost host;
 	private volatile bool ownsRuntime;
+    private const string FolderSizeModule = "explorer-details-better-file-sizes.ini";
+    private const string FolderSizeLibrary = "explorer-details-better-file-sizes_1.6_piaoklxt1.dll";
 	private int disposed;
 
 	public ExplorerThemeRuntime() : this(Path.Combine(AppPaths.BaseDirectory, "ExplorerThemeRuntime"),
@@ -86,21 +88,25 @@ internal sealed class ExplorerThemeRuntime : IDisposable
         string previous = File.Exists(active) ? File.ReadAllText(active) : null;
         string taskbarActive = Path.Combine(Path.GetDirectoryName(active), "windows-11-taskbar-styler.ini");
         string previousTaskbar = File.Exists(taskbarActive) ? File.ReadAllText(taskbarActive) : null;
+        string folderActive = Path.Combine(Path.GetDirectoryName(active), FolderSizeModule);
+        string previousFolder = File.Exists(folderActive) ? File.ReadAllText(folderActive) : null;
         bool wasRunning = IsBundledRuntimeActive();
         string desktop = host != null ? host.CaptureDesktop() : CaptureDesktop();
-        bool explorerChanged = false, taskbarChanged = false;
+        bool explorerChanged = false, taskbarChanged = false, folderChanged = false;
         try
         {
             // Seed binaries only when stopped. Live configuration must never
             // unload every extension or briefly overwrite preferences with defaults.
             if (!wasRunning) CopyTree(Path.Combine(runtimeDirectory, "Seed"), dataDirectory);
+            EnsureFolderSizeLibrary();
             explorerChanged = WriteModuleConfiguration(active, appearance, false);
             taskbarChanged = WriteModuleConfiguration(taskbarActive, appearance, true);
+            folderChanged = WriteFolderSizeConfiguration(folderActive, appearance);
             if (!wasRunning) StartRuntime();
-            if (!wasRunning || explorerChanged || taskbarChanged)
+            if (!wasRunning || explorerChanged || taskbarChanged || folderChanged)
             {
                 RuntimeLog.Write("Appearance apply: mode=" + (wasRunning ? "live" : "start") +
-                    "; explorerChanged=" + explorerChanged + "; taskbarChanged=" + taskbarChanged);
+                    "; explorerChanged=" + explorerChanged + "; taskbarChanged=" + taskbarChanged + "; folderSizesChanged=" + folderChanged);
                 if (host != null) host.VerifyDesktop(desktop);
                 else VerifyDesktop(desktop);
                 if (!IsBundledRuntimeActive()) throw new InvalidOperationException("外观组件已退出，设置未保存。");
@@ -115,6 +121,7 @@ internal sealed class ExplorerThemeRuntime : IDisposable
             {
                 if (explorerChanged || !wasRunning) RestoreModule(active, previous);
                 if (taskbarChanged || !wasRunning) RestoreModule(taskbarActive, previousTaskbar);
+                if (folderChanged || !wasRunning) RestoreModule(folderActive, previousFolder);
                 RuntimeLog.Write("Appearance apply rolled back; preferences not saved.");
             }
             catch (Exception ex) { RuntimeLog.Write("Explorer appearance rollback failed: " + ex.Message); }
@@ -131,6 +138,31 @@ internal sealed class ExplorerThemeRuntime : IDisposable
         ownsRuntime = IsBundledRuntimeActive();
         if (!ownsRuntime) throw new InvalidOperationException("资源管理器外观组件没有启动成功，设置未保存。");
         RuntimeLog.Write("Bundled appearance runtime started; awaiting desktop health check.");
+    }
+
+    private void EnsureFolderSizeLibrary()
+    {
+        if (host != null) return; // Isolated transaction tests provide their own host.
+        string relative = Path.Combine("Engine/Mods/64", FolderSizeLibrary);
+        string source = Path.Combine(runtimeDirectory, "Seed", relative);
+        string target = Path.Combine(dataDirectory, relative);
+        if (!File.Exists(source)) throw new InvalidOperationException("缺少文件夹大小组件，请使用完整安装包。");
+        // New, versioned module only: never unload or overwrite live XAML modules.
+        if (File.Exists(target)) return;
+        Directory.CreateDirectory(Path.GetDirectoryName(target));
+        File.Copy(source, target, false);
+    }
+
+    private bool WriteFolderSizeConfiguration(string path, ExplorerAppearanceSettings appearance)
+    {
+        string seed = Path.Combine(runtimeDirectory, "Seed/Engine/Mods", FolderSizeModule);
+        if (!File.Exists(seed)) throw new InvalidOperationException("缺少文件夹大小配置，请使用完整安装包。");
+        string old = File.Exists(path) ? File.ReadAllText(path) : null;
+        string next = AppearanceIni.Set(File.ReadAllText(seed), "enabled", appearance.FolderSizes ? "1" : "0");
+        if (old != null && NormalizeConfiguration(old) == NormalizeConfiguration(next)) return false;
+        next = AppearanceIni.Set(next, "SettingsChangeTime", NextRevision(old).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        AppearanceIni.WriteAtomic(path, next, System.Text.Encoding.Unicode);
+        return true;
     }
 
     private void StopRuntime()
@@ -216,6 +248,9 @@ internal sealed class ExplorerThemeRuntime : IDisposable
             AppearanceIni.WriteAtomic(Path.Combine(destination, taskbarRelative),
                 appearance.CreateTaskbarConfiguration(File.ReadAllText(taskbarSeed)), System.Text.Encoding.Unicode);
         else if (appearance.TaskbarAcrylic) throw new InvalidOperationException("缺少任务栏外观组件，请使用完整安装包。");
+        string folderSeed = Path.Combine(seed, "Engine/Mods", FolderSizeModule);
+        if (File.Exists(folderSeed)) AppearanceIni.WriteAtomic(Path.Combine(destination, "Engine/Mods", FolderSizeModule),
+            AppearanceIni.Set(File.ReadAllText(folderSeed), "enabled", appearance.FolderSizes ? "1" : "0"), System.Text.Encoding.Unicode);
     }
 
 	private static void CopyTree(string source, string destination)

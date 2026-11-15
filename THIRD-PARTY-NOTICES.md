@@ -24,6 +24,15 @@ These GPL components run as an independent process and remain separate works agg
 
 QQ Music is not included in this repository or its release archives.
 
+Better file sizes in Explorer details 1.6 by m417z is included as a separate
+GPLv3 Windhawk mod, with the MusicWallpaper asynchronous adapter:
+
+- Upstream: https://github.com/ramensoftware/windhawk-mods/blob/main/mods/explorer-details-better-file-sizes.wh.cpp
+- Distributed version: `1.6-piaoklxt.1`; restricted to `explorer.exe`.
+- Exact corresponding source: `ExplorerThemeRuntime/licenses/explorer-details-better-file-sizes.wh.cpp` and `folder-size-cache.hpp`.
+- Rebuild: `scripts/build-folder-sizes.ps1`, using the same external Windhawk 1.7.3 developer toolchain.
+- The adapter replaces synchronous recursive size queries with a bounded cache and a single low-priority worker. Existing upstream license and Everything SDK notices are preserved in the source; Everything is not required or bundled.
+
 Windows 11 Taskbar Styler 1.11 by m417z is also distributed under GPLv3 as a separate mod:
 
 - Pinned source: https://github.com/ramensoftware/windhawk-mods/blob/2cd9c600bfe13afb4fba68ec907a4b8084acc0a3/mods/windows-11-taskbar-styler.wh.cpp
