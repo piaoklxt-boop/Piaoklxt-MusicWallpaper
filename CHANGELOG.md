@@ -1,13 +1,11 @@
 # Changelog
 
-### Local candidate additions
-
-- Keep the selected QQ Music source visible across virtual desktops automatically, including newly created source windows after QQ Music restarts. Reuse one renderer and preserve existing manual pins.
-- Show folder sizes directly in Explorer's Size column through the bundled Windhawk component. Calculate local fixed-drive folders on one low-priority background worker, cache complete results, and update the view when ready. The Explorer control panel has an independent switch; network paths and incomplete scans remain blank.
-
-## Unreleased
+## 1.4.0 - 2026-11-15
 
 ### 新增与改进
+
+- 自动将 QQ 音乐源窗口固定到所有虚拟桌面，播放器重开或窗口更换后重新检查；仍共用一套捕获与渲染。
+- 集成文件夹大小组件，在资源管理器原生“大小”列显示结果，提供独立开关。单个低优先级线程后台计算并缓存，不在属性查询线程递归扫描。
 
 - 播放／暂停、上一首、下一首优先直接调用 QQ 音乐媒体会话；语义按钮与菜单尝试原生 MSAA 动作。进度请求先检查媒体会话能力；不支持的功能明确记录并保留兼容路径，已发送但结果不确定的命令不补发点击。UIA 的“返回成功但实际无动作”路径不启用。
 - 增加独立的原色／浅色／深色配色效果，可与全部单色、渐变及炫彩组合并提供预览，不强制改变 Windows 黑白主题。
@@ -31,7 +29,7 @@
 - 资源管理器拖动／缩放期间暂用同色不透明背景，结束后恢复当前亚克力设置；不再在移动过程中持续实时采样模糊背景。关闭外观或销毁窗口时解除拖动处理。
 
 - 系统主题通知改为合并后台发送，限制单个接收窗口等待时间；取色最多保留一个后台请求，慢渲染器不再占住设置锁或动画线程。重复应用相同颜色不再重复广播，日志记录外观应用阶段。
-- 修复配色深浅同时强制系统明暗、开启强调色强制深色任务栏的耦合。自动明暗始终采样音乐画面，不再依据炫彩代表色推断黑白主题。
+- 修复配色深浅同时强制系统明暗、开启强调色强制深色任务栏的耦合。自动明暗读取歌词页原生文字配色，不再依据炫彩代表色推断黑白主题。
 - 任务栏色层在关闭亚克力后仍遵循透明度滑块，完全透明时正确隐藏。
 - 修复拖动／缩放窗口时独立色层滞后：交互移动期间隐藏色层，结束后按新位置与区域恢复；位置事件立即撤下旧位置色框。
 - 外观设置改为原地更新有变化的模块，不再每次卸载、重启整个外观运行时；仅改变底边延伸时不触发原生 XAML 重载。
@@ -41,12 +39,22 @@
 
 ### 验证边界
 
+- 实机曾在点击歌词翻译“译”后发生 QQMusic.dll 访问冲突；恢复后未稳定复现，根因尚未确认，本版不声称已修复。
+- 文件夹大小首次计算大目录可能较慢；内存缓存到期后先显示旧值并后台刷新，Explorer 重启会清空缓存。网络／可移动路径、目录链接和无法完整读取的目录有限制，详情见 `docs/desktop-pinning-and-folder-sizes.md`。
+- 自动跨桌面固定使用能力探测的 Shell 接口，Windows 更新后仍需验证兼容性。原生歌词颜色读取仅支持已验证的 QQ 音乐模块版本，失败时保留最后确认的颜色。
+
 - 控件覆盖取决于 QQ 音乐实际暴露的无障碍信息；未暴露的自绘控件、无法证实归属的弹窗不会被猜测点击。搜索提交依赖控件支持 MSAA 值写入。
 - 任务栏扩展针对已有的主屏幕壁纸区域；亚克力依赖 Windows 11 的 XAML 任务栏。任务栏亚克力默认关闭，独立主题色层默认开启。
 - 设置应用后的桌面健康观察为有界检查，不能证明所有第三方 XAML 路径永久稳定。
 - Office 区域识别依赖实际窗口和无障碍信息；PowerPoint 另支持通过只读对象模型识别活动普通／幻灯片视图中的完整画布。无法确认区域时，单独渲染界面或内容的模式暂不着色；界面与内容同时开启不依赖区域识别。尚未验证所有 Office 版本、缩放和多屏组合。
 
 ### English
+
+- Automatically pin replacement QQ Music source windows across virtual desktops while sharing one renderer.
+- Display folder sizes in Explorer’s native Size column using a low-priority asynchronous worker and an independent switch.
+- Prefer native media commands and read the lyric highlight property directly; preserve unsupported compatibility paths and never repeat uncertain commands.
+- Add ordinary-app and Office tint, vivid palettes, single-hue gradients and independent tone controls; improve drag and theme-update responsiveness.
+- Known issue: one QQMusic.dll access violation followed a lyric-translation click; the cause is unconfirmed and is not claimed fixed.
 
 - Broaden semantic routing to exposed application navigation, list, link and edit controls; preserve hit snapshots and exclude inactive-page descendants.
 - Add verified text editing and semantically identified owned dialogs without focusing the parked source.

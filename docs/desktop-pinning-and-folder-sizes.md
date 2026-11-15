@@ -38,3 +38,11 @@ Owned offscreen-window tests cover real Shell pin/unpin and lifecycle dispatch.
 Native folder tests cover nested/empty sizes, unknown versus zero, cancellation,
 cache reuse, nonblocking property requests and worker shutdown. Live QQ Music
 restart and real Explorer-column rendering remain separate acceptance checks.
+
+The standard controller suite uses injected Shell operations for lifecycle tests.
+Run `ControllerRegression.Tests.exe --desktop-pin-live` separately on an interactive
+Windows desktop to exercise real pin/unpin on an owned offscreen test window.
+This check is deliberately excluded from hosted CI, where a Shell desktop may
+not exist. `tests/FolderSizes.Tests/FolderSizes.Tests.vcxproj` runs the native cache
+checks with MSVC in CI; `scripts/build-folder-sizes.ps1` also runs them while
+building the bundled module with the Windhawk toolchain.

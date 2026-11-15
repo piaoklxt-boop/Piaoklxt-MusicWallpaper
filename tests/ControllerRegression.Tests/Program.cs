@@ -20,6 +20,8 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        if (args.Length > 0 && args[0] == "--desktop-pin-live")
+        { DesktopPinRegression.NativePin(); Console.WriteLine("PASS live Shell pin/unpin on worker"); return 0; }
         if (args.Length > 0 && args[0] == "--direct-media-state")
         { Console.WriteLine(MediaSessionCommands.ReadPlaybackState()); return 0; }
         if (args.Length > 1 && args[0] == "--ordinary-fixture") return BroadThemeRegression.RunFixture(args[1]);

@@ -16,7 +16,6 @@ internal static class DesktopPinRegression
         run("desktop pin reapplies after source process and window replacement", Replacement);
         run("desktop pin never dispatches an obsolete source or disposed request", Cancellation);
         run("desktop pin limits steady-state work and overlapping workers", Bounded);
-        run("desktop pin native interface pins and restores an owned offscreen window", NativePin);
         run("desktop pin controller capture binds a replacement source", ControllerCapture);
     }
     private static void Check(bool ok) { if (!ok) throw new Exception("Desktop pin regression failed"); }
@@ -52,7 +51,7 @@ internal static class DesktopPinRegression
             Check(queue.Count==0 && calls==1);
         }
     }
-    private static void NativePin()
+    internal static void NativePin()
     {
         using(var f = new Form { StartPosition=FormStartPosition.Manual, Location=new Point(-24000,-24000), Size=new Size(100,80), Text="Owned desktop pin regression" })
         {

@@ -51,6 +51,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Controller regression build failed.' }
           & .\artifacts\controller-regressions\bin\ControllerRegression.Tests\release\ControllerRegression.Tests.exe
           if ($LASTEXITCODE -ne 0) { throw 'Controller integration regressions failed.' }
+      - name: Native folder-size cache regressions
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
+          $out = Join-Path $pwd 'artifacts\folder-size-tests\'
+          $obj = Join-Path $pwd 'artifacts\folder-size-obj\'
+          & $msbuild tests\FolderSizes.Tests\FolderSizes.Tests.vcxproj /p:Configuration=Release /p:Platform=x64 "/p:OutDir=$out" "/p:IntDir=$obj" '-bl:artifacts\test-logs\folder-size-{}.binlog'
+          if ($LASTEXITCODE -ne 0) { throw 'Folder-size cache build failed.' }
+          & (Join-Path $out 'FolderSizes.Tests.exe')
+          if ($LASTEXITCODE -ne 0) { throw 'Folder-size cache regressions failed.' }
       - name: Build portable package
         id: package
         shell: pwsh
